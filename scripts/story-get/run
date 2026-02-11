@@ -2,29 +2,16 @@
 # frozen_string_literal: true
 
 #
-# scripts/goal-get - Read a single pipeline goal from GitHub Issues
+# scripts/story-get - Read a single pipeline story from GitHub Issues
 #
-# Usage: goal-get [--repo OWNER/REPO] <number>
+# Usage: story-get [--repo OWNER/REPO] <number>
 #
-# Output: JSON {"ok": true, "number": ..., "title": ..., "status": ..., ...}
+# Output: JSON {"ok": true, "number": ..., "title": ..., "body": ..., "goals": [...]}
 # Exit code: 0 on success, 1 on failure
 #
 
 require 'json'
 require 'optparse'
-
-VALID_STATUSES = %w[draft queued running spot-check done stuck].freeze
-STATUS_LABELS = VALID_STATUSES.map { |s| "goal:#{s}" }.freeze
-
-def extract_status(labels)
-  labels.each do |label|
-    name = label.is_a?(Hash) ? label['name'] : label.to_s
-    STATUS_LABELS.each do |sl|
-      return sl.sub('goal:', '') if name == sl
-    end
-  end
-  nil
-end
 
 def has_label?(labels, target)
   labels.any? do |label|
@@ -33,11 +20,30 @@ def has_label?(labels, target)
   end
 end
 
-def parse_story_ref(body)
-  return nil if body.nil?
+def find_linked_goals(story_number, nwo: nil)
+  cmd = [
+    'gh', 'issue', 'list',
+    '--label', 'pipeline,goal',
+    '--json', 'number,title,labels,body',
+    '--limit', '100',
+    '--state', 'all'
+  ]
+  cmd += ['--repo', nwo] if nwo
 
-  match = body.match(/Story:\s*#(\d+)/)
-  match ? match[1].to_i : nil
+  stdout = IO.popen(cmd, err: '/dev/null', &:read)
+  return [] if $?.exitstatus != 0
+
+  issues = JSON.parse(stdout) rescue []
+
+  issues.select do |issue|
+    body = issue['body'] || ''
+    body.match?(/Story:\s*##{story_number}\b/)
+  end.map do |issue|
+    {
+      number: issue['number'],
+      title: issue['title']
+    }
+  end
 end
 
 def main
@@ -45,21 +51,21 @@ def main
 
   OptionParser.new do |opts|
     opts.banner = <<~HELP
-      Usage: goal-get [--repo OWNER/REPO] <number>
+      Usage: story-get [--repo OWNER/REPO] <number>
 
-      Read a single pipeline goal from GitHub Issues.
+      Read a single pipeline story and its linked goals from GitHub Issues.
 
       Arguments:
         --repo    Optional. GitHub repo in OWNER/REPO format.
         number    GitHub Issue number (required)
 
       Output:
-        JSON with fields: number, title, status, spot_check, story, body
+        JSON with fields: number, title, state, body, goals
+        goals is an array of {number, title} for goals referencing this story.
 
       Examples:
-        goal-get 42
-        goal-get 42 --repo mgreenly/ikigai
-        goal-get 42 | jq .body
+        story-get 15
+        story-get 15 --repo mgreenly/ikigai
     HELP
 
     opts.on('--repo=REPO', 'GitHub repo (OWNER/REPO)') { |r| nwo = r }
@@ -92,22 +98,20 @@ def main
 
   labels = issue['labels'] || []
 
-  unless has_label?(labels, 'goal')
-    puts JSON.generate(ok: false, items: ["##{number} is not a goal"])
+  unless has_label?(labels, 'story')
+    puts JSON.generate(ok: false, items: ["##{number} is not a story"])
     exit 1
   end
 
-  label_names = labels.map { |label| label.is_a?(Hash) ? label['name'] : label.to_s }
+  goals = find_linked_goals(number, nwo: nwo)
 
   puts JSON.generate(
     ok: true,
     number: issue['number'],
     title: issue['title'],
-    status: extract_status(labels),
-    spot_check: has_label?(labels, 'spot-check'),
-    story: parse_story_ref(issue['body']),
+    state: issue['state'],
     body: issue['body'],
-    labels: label_names
+    goals: goals
   )
   exit 0
 end

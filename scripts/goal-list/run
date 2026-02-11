@@ -4,9 +4,10 @@
 #
 # scripts/goal-list - List pipeline goals from GitHub Issues
 #
-# Usage: goal-list [status]
+# Usage: goal-list [--repo OWNER/REPO] [status]
 #
 # Arguments:
+#   --repo    Optional. GitHub repo in OWNER/REPO format.
 #   status    Optional. One of: draft, queued, running, spot-check, done, stuck
 #             If omitted, lists all goals.
 #
@@ -15,13 +16,16 @@
 #
 
 require 'json'
+require 'optparse'
 
 VALID_STATUSES = %w[draft queued running spot-check done stuck].freeze
 
 STATUS_LABELS = VALID_STATUSES.map { |s| "goal:#{s}" }.freeze
 
-def run_gh(args)
-  cmd = ['gh', 'issue', 'list'] + args
+def run_gh(args, nwo: nil)
+  cmd = ['gh', 'issue', 'list']
+  cmd += ['--repo', nwo] if nwo
+  cmd += args
   stdout = IO.popen(cmd, err: '/dev/null', &:read)
   [$?.exitstatus, stdout]
 end
@@ -51,13 +55,16 @@ def has_label?(labels, target)
 end
 
 def main
-  if ARGV.include?('--help') || ARGV.include?('-h')
-    puts <<~HELP
-      Usage: goal-list [status]
+  nwo = nil
+
+  OptionParser.new do |opts|
+    opts.banner = <<~HELP
+      Usage: goal-list [--repo OWNER/REPO] [status]
 
       List pipeline goals from GitHub Issues.
 
       Arguments:
+        --repo    Optional. GitHub repo in OWNER/REPO format.
         status    Optional. One of: #{VALID_STATUSES.join(', ')}
                   If omitted, lists all goals.
 
@@ -69,9 +76,11 @@ def main
         goal-list              # all goals
         goal-list queued       # only queued goals
         goal-list spot-check   # goals awaiting smoke test
+        goal-list queued --repo mgreenly/ikigai
     HELP
-    exit 0
-  end
+
+    opts.on('--repo=REPO', 'GitHub repo (OWNER/REPO)') { |r| nwo = r }
+  end.parse!
 
   status = ARGV[0]
 
@@ -92,7 +101,7 @@ def main
     '--state', status == 'done' ? 'closed' : 'open'
   ]
 
-  exit_code, stdout = run_gh(gh_args)
+  exit_code, stdout = run_gh(gh_args, nwo: nwo)
 
   if exit_code != 0
     puts JSON.generate(ok: false, items: ['gh issue list failed'])
