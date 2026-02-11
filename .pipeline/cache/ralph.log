@@ -1,0 +1,12 @@
+RALPH v0.4.0
+
+Braindead agentic loop. Just keep trying until it works.
+
+Params
+
+Model: sonnet | Reasoning: med | Max Duration: unlimited
+
+Goal
+
+Create a file called `PING.md` at the root of the repository with the content `PONG`.
+
