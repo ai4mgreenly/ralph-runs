@@ -1,23 +1,19 @@
 ---
 name: pipeline
-description: Pipeline commands for managing stories and goals
+description: Pipeline commands for managing goals
 ---
 
 # Pipeline
 
-Continuous development pipeline. Stories describe features, goals are executable units of work. All scripts return JSON (`{"ok": true/false, ...}`).
+Continuous development pipeline. Goals are executable units of work backed by the ralph-plans API (Go + SQLite). All scripts return JSON (`{"ok": true/false, ...}`).
 
-All commands accept `--repo OWNER/REPO` to target an external repository.
-
-**Trial/Debug Mode:** Currently all goals use `--story 0` to disable story tracking. Goals are standalone during this phase.
+Requires `RALPH_PLANS_HOST` and `RALPH_PLANS_PORT` environment variables.
 
 ## Flow
 
 ```
-Story (human writes) → Goals (decomposed) → Queue → Ralph executes → PR merges
+Goals (authored) → Queue → Ralph executes → PR merges
 ```
-
-**Current:** Goals bypass story mechanism (`--story 0`) during trial/debug phase.
 
 ## Default Workflow: Goals-First
 
@@ -34,7 +30,7 @@ Story (human writes) → Goals (decomposed) → Queue → Ralph executes → PR 
 **Default behaviors:**
 
 - **Always queue after creation** - No manual testing or "trying it first" unless user explicitly requests it
-- **No spot-check** - Goals do not use `--spot-check` flag unless user explicitly requests it during goal preparation
+- **No review** - Goals do not use `--review` flag unless user explicitly requests it during goal preparation
 - **No local changes** - Claude does not make local changes directly; work goes through Ralph
 
 **When to make local changes (exceptions only):**
@@ -47,42 +43,40 @@ Story (human writes) → Goals (decomposed) → Queue → Ralph executes → PR 
 
 ## Goal Statuses
 
-`draft` → `queued` → `running` → `spot-check` or `done` (or `stuck`)
-
-## Story Commands
-
-| Command | Usage | Does |
-|---------|-------|------|
-| `story-create` | `--title "..." [--repo O/R] < body.md` | Create story |
-| `story-list` | `[--repo O/R] [--state open\|closed\|all]` | List stories |
-| `story-get` | `[--repo O/R] <number>` | Read story + linked goals |
+`draft` → `queued` → `running` → `reviewing` or `done` (or `stuck`)
 
 ## Goal Commands
 
 | Command | Usage | Does |
 |---------|-------|------|
-| `goal-create` | `--story <N> --title "..." [--repo O/R] [--spot-check] [--depends "N,M"] < body.md` | Create goal (draft) |
-| `goal-list` | `[--repo O/R] [status]` | List goals, optionally by status |
-| `goal-get` | `[--repo O/R] <number>` | Read goal body + status |
-| `goal-queue` | `[--repo O/R] <number>` | Transition draft → queued |
-| `goal-spot-check` | `[--repo O/R] <number> approve\|reject [--feedback "..."]` | Approve/reject after smoke test |
+| `goal-create` | `--title "..." --org ORG --repo REPO [--review] < body.md` | Create goal (draft) |
+| `goal-list` | `[--status STATUS] [--org ORG] [--repo REPO]` | List goals, optionally filtered |
+| `goal-get` | `<id>` | Read goal body + status |
+| `goal-queue` | `<id>` | Transition draft → queued |
+| `goal-start` | `<id>` | Transition queued → running |
+| `goal-done` | `<id>` | Transition running → done |
+| `goal-stuck` | `<id>` | Transition running → stuck |
+| `goal-retry` | `<id>` | Transition stuck → queued (requeue) |
+| `goal-comment` | `<id> < comment.txt` | Append comment to goal (body via stdin) |
+| `goal-comments` | `<id>` | List comments on a goal |
+| `goal-spot-check` | `<id> set\|approve\|reject [--feedback "..."]` | Manage review state |
 
 ## Invocation
 
 Scripts live in `scripts/<name>/run` with symlinks in `bin/`:
 
 ```bash
-bin/goal-list queued --repo mgreenly/ikigai
-bin/goal-get 42 --repo mgreenly/ikigai
-echo "## Objective\n..." | bin/goal-create --story 0 --title "Add X" --repo mgreenly/ikigai
+goal-list --status queued --org mgreenly --repo ikigai
+goal-get 42
+echo "## Objective\n..." | goal-create --title "Add X" --org mgreenly --repo ikigai
+echo "## Objective\n..." | goal-create --title "Add X" --org mgreenly --repo ikigai --review
+goal-queue 42
 ```
-
-**Note:** During trial/debug phase, always use `--story 0` when creating goals.
 
 ## Logs
 
 - **Orchestrator log**: `~/.local/state/ralph/logs/ralph-runs.log`
-- **Ralph logs**: `~/.local/state/ralph/clones/<org>/<repo>/<number>/.pipeline/cache/ralph.log`
+- **Ralph logs**: `~/.local/state/ralph/clones/<org>/<repo>/<id>/.pipeline/cache/ralph.log`
 
 ## Goal Authoring
 
@@ -96,9 +90,8 @@ Goal bodies **must** follow the `goal-authoring` skill guidelines (`/load goal-a
 
 ## Key Rules
 
-- **Body via stdin** -- `goal-create` and `story-create` read body from stdin
-- **Trial/debug mode** -- Use `--story 0` for all goals during trial/debug phase; stories are disabled
-- Goals reference parent story via `Story: #<number>` in body (currently `Story: #0` for all goals)
-- **Dependencies** -- Goals can declare `Depends: #N, #M` in body; orchestrator waits for dependencies to reach `goal:done` before picking up the goal
-- **Story auto-close** -- When all goals for a story reach `goal:done`, the story is automatically closed (inactive during trial/debug phase)
-- **--repo flag** -- All commands accept `--repo OWNER/REPO` to target repos other than the current directory
+- **Body via stdin** -- `goal-create` and `goal-comment` read body from stdin
+- **IDs are global** -- Goal IDs are managed by ralph-plans, not GitHub issue numbers
+- **--org / --repo flags** -- Use `--org ORG --repo REPO` (separate flags, not `OWNER/REPO`)
+- **Review workflow** -- Goals created with `--review` go through `running → reviewing → done` (via `goal-spot-check set`, then `goal-spot-check approve`)
+- **Retry workflow** -- Failed goals go `running → stuck → queued` (via `goal-stuck` then `goal-retry`); comments with failure context are attached automatically

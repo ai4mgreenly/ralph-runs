@@ -1,5 +1,7 @@
 # ralph-runs
 
+ralph-runs is an autonomous software development pipeline orchestrator. It polls for queued goals from the ralph-plans API, spawns AI agents ("ralphs") to execute them in isolated repository clones, and creates pull requests from the results. The orchestrator handles concurrency, retries (up to 3 attempts with failure context), and review workflows. The agent loop (`scripts/ralph/run`) iterates Claude invocations with extended thinking, progress tracking, and automatic summarization until the goal is done or time runs out. See `PROJECT.md` for full architectural details.
+
 ## Skills
 
 Skills are modular instruction sets stored in `.claude/library/<name>/SKILL.md`.
