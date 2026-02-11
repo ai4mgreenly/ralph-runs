@@ -1,0 +1,8 @@
+{
+  "preload": [
+    "jj",
+    "pipeline",
+    "goal-authoring"
+  ],
+  "advertise": []
+}
