@@ -42,3 +42,25 @@ Perfect! I've successfully created the `PING.md` file at the repository root wit
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 11
+  Tool Uses: 4
+
+  Tokens:
+    Input: 83
+    Output: 58
+    Cache Read: 107,699
+    Cache Create: 41,141
+    Total: 148,981
+
+  Cost: $0.1877
+
+  Time:
+    LLM: 18s
+    Tools: 1s
+    Other: 2s
+    Total: 23s
+══════════════════════════════════════════════════════════════════════
+
