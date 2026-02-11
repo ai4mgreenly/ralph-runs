@@ -4,7 +4,7 @@
 #
 # scripts/ralph-runs/run - Pipeline orchestrator for concurrent goal execution
 #
-# Usage: ralph-runs --max N [--model MODEL] [--reasoning LEVEL] [--duration DURATION]
+# Usage: ralph-runs --max N [--model MODEL] [--reasoning LEVEL] [--duration DURATION] REPO_URL [REPO_URL ...]
 #
 # Picks up queued goals, spawns ralphs in isolated clones, collects results,
 # creates PRs on success, retries on failure, and notifies on spot-check.
@@ -14,6 +14,7 @@
 #   --model MODEL      Model for ralphs: haiku, sonnet, opus (default: sonnet)
 #   --reasoning LEVEL  Reasoning level: none, low, med, high (default: med)
 #   --duration DUR     Time budget per ralph (e.g., 4h, 200m)
+#   REPO_URL           One or more GitHub repo URLs (git@ or https://)
 #
 # Exit code: 0 on clean shutdown, 130 on interrupt
 #
@@ -58,9 +59,8 @@ def parse_depends(body)
   match[1].scan(/#(\d+)/).flatten.map(&:to_i)
 end
 
-def list_retry_prs
-  cmd = [
-    'gh', 'pr', 'list',
+def list_retry_prs(nwo)
+  cmd = ['gh', 'pr', 'list', '--repo', nwo,
     '--label', 'goal:retry',
     '--state', 'open',
     '--json', 'number,headRefName,body,url',
@@ -87,9 +87,10 @@ def extract_goal_number(pr)
   nil
 end
 
-def get_pr_checks_url(pr_number)
+def get_pr_checks_url(pr_number, nwo)
   cmd = [
     'gh', 'pr', 'view', pr_number.to_s,
+    '--repo', nwo,
     '--json', 'statusCheckRollup,url'
   ]
   stdout = IO.popen(cmd, err: '/dev/null', &:read)
@@ -103,9 +104,10 @@ def get_pr_checks_url(pr_number)
   pr_url ? "#{pr_url}/checks" : nil
 end
 
-def get_pr_comments(pr_number)
+def get_pr_comments(pr_number, nwo)
   cmd = [
     'gh', 'pr', 'view', pr_number.to_s,
+    '--repo', nwo,
     '--json', 'comments'
   ]
   stdout = IO.popen(cmd, err: '/dev/null', &:read)
@@ -145,6 +147,17 @@ def build_augmented_goal(goal_body, pr_number, checks_url, comments)
   parts.join("\n")
 end
 
+def ensure_pipeline_cache(dest)
+  cache_dir = File.join(dest, '.pipeline', 'cache')
+  gitkeep = File.join(cache_dir, '.gitkeep')
+  return if File.exist?(gitkeep)
+
+  FileUtils.mkdir_p(cache_dir)
+  FileUtils.touch(gitkeep)
+  system('jj', 'commit', '-m', 'Add .pipeline/cache directory',
+         chdir: dest, out: '/dev/null', err: '/dev/null')
+end
+
 def clone_pr_branch(remote_url, org, repo, number, branch)
   dest = File.join(CLONE_DIR, org, repo, number.to_s)
   FileUtils.mkdir_p(File.dirname(dest))
@@ -156,6 +169,9 @@ def clone_pr_branch(remote_url, org, repo, number, branch)
 
   # Initialize jj so ralph's commits work inside the clone
   system('jj', 'git', 'init', chdir: dest, out: '/dev/null', err: '/dev/null')
+
+  # Ensure .pipeline/cache/ is tracked so it survives jj commits
+  ensure_pipeline_cache(dest)
   dest
 end
 
@@ -175,44 +191,36 @@ def force_push_branch(clone_dir, branch)
   $?.exitstatus == 0
 end
 
-def remove_pr_label(pr_number, label)
+def remove_pr_label(pr_number, label, nwo)
   system('gh', 'pr', 'edit', pr_number.to_s,
+         '--repo', nwo,
          '--remove-label', label,
          out: '/dev/null', err: '/dev/null')
 end
 
-def add_pr_label(pr_number, label)
+def add_pr_label(pr_number, label, nwo)
   system('gh', 'pr', 'edit', pr_number.to_s,
+         '--repo', nwo,
          '--add-label', label,
          out: '/dev/null', err: '/dev/null')
 end
 
-def dependencies_met?(depends_on)
+def dependencies_met?(depends_on, nwo)
   return true if depends_on.empty?
   depends_on.all? do |dep_number|
-    result = run_script(GOAL_GET_SCRIPT, dep_number.to_s)
+    result = run_script(GOAL_GET_SCRIPT, dep_number.to_s, repo: nwo)
     result && result['ok'] && result['labels']&.include?('goal:done')
   end
 end
 
-def run_script(script, *args)
+def run_script(script, *args, repo: nil)
   cmd = [script] + args
+  cmd += ['--repo', repo] if repo
   stdout = IO.popen(cmd, err: '/dev/null', &:read)
   return nil unless $?.exitstatus == 0
 
   JSON.parse(stdout)
 rescue JSON::ParserError
-  nil
-end
-
-def get_remote_url
-  output = IO.popen(%w[jj git remote list], chdir: PROJECT_ROOT, err: '/dev/null', &:read)
-  return nil unless $?.exitstatus == 0
-
-  output.each_line do |line|
-    parts = line.strip.split(/\s+/)
-    return parts[1] if parts[0] == 'origin' && parts[1]
-  end
   nil
 end
 
@@ -227,8 +235,9 @@ def parse_org_repo(remote_url)
   end
 end
 
-def transition_label(number, from_label, to_label)
+def transition_label(number, from_label, to_label, nwo)
   system('gh', 'issue', 'edit', number.to_s,
+         '--repo', nwo,
          '--remove-label', from_label,
          '--add-label', to_label,
          out: '/dev/null', err: '/dev/null')
@@ -242,6 +251,9 @@ def clone_repo(remote_url, org, repo, number)
 
   # Initialize jj so ralph's commits work inside the clone
   system('jj', 'git', 'init', chdir: dest, out: '/dev/null', err: '/dev/null')
+
+  # Ensure .pipeline/cache/ is tracked so it survives jj commits
+  ensure_pipeline_cache(dest)
   dest
 end
 
@@ -250,7 +262,7 @@ def delete_clone(org, repo, number)
   FileUtils.rm_rf(dest) if Dir.exist?(dest)
 end
 
-def create_pr_from_clone(number, title, clone_dir)
+def create_pr_from_clone(number, title, clone_dir, nwo)
   branch = "goal-#{number}"
 
   # Commit any uncommitted working copy changes
@@ -281,7 +293,7 @@ def create_pr_from_clone(number, title, clone_dir)
   # Create PR
   body = "Closes ##{number}"
   pr_output = IO.popen(
-    ['gh', 'pr', 'create', '--title', title, '--body', body, '--head', branch],
+    ['gh', 'pr', 'create', '--repo', nwo, '--title', title, '--body', body, '--head', branch],
     chdir: clone_dir, err: '/dev/null', &:read
   )
 
@@ -317,7 +329,15 @@ def format_elapsed(seconds)
   end
 end
 
-def main(options)
+def goal_label(number, repo_info, repos)
+  if repos.size > 1
+    "Goal #{repo_info[:nwo]}##{number}"
+  else
+    "Goal ##{number}"
+  end
+end
+
+def main(options, repos)
   init_log
 
   max_slots = options[:max]
@@ -325,28 +345,16 @@ def main(options)
   reasoning = options[:reasoning]
   duration = options[:duration]
 
-  remote_url = get_remote_url
-  unless remote_url
-    $stderr.puts 'Error: could not determine origin remote URL'
-    exit 1
-  end
-
-  org_repo = parse_org_repo(remote_url)
-  unless org_repo
-    $stderr.puts 'Error: could not parse org/repo from remote URL'
-    exit 1
-  end
-  org, repo = org_repo
-
   log "Starting orchestrator (max #{max_slots} ralphs)"
-  log "Remote: #{remote_url}"
-  log "Repo: #{org}/#{repo}"
+  repos.each do |r|
+    log "Repo: #{r[:nwo]} (#{r[:url]})"
+  end
   log "Model: #{model} | Reasoning: #{reasoning} | Duration: #{duration || 'unlimited'}"
 
   # State tracking
-  running = {}      # pid => {number:, title:, spot_check:, dir:, started_at:, stream_thread:, wait_thread:}
-  retries = Hash.new(0)  # goal_number => retry count
-  attempted = Set.new  # goal_number => attempted at least once this session
+  running = {}      # pid => {number:, title:, spot_check:, dir:, started_at:, stream_thread:, wait_thread:, repo:}
+  retries = Hash.new(0)  # [nwo, goal_number] => retry count
+  attempted = Set.new  # [nwo, goal_number] => attempted at least once this session
   completed_count = 0
   last_queued_count = nil
   last_running_count = nil
@@ -367,18 +375,21 @@ def main(options)
         Process.wait(pid) rescue nil
         info[:stream_thread]&.join rescue nil
 
+        ri = info[:repo]
+        nwo = ri[:nwo]
+
         if info[:retry_pr]
           # Retry PR — re-add retry label (may have been removed during processing)
-          add_pr_label(info[:retry_pr], 'goal:retry')
-          log "Goal ##{info[:number]} (PR ##{info[:retry_pr]}) → goal:retry restored (was running)"
+          add_pr_label(info[:retry_pr], 'goal:retry', nwo)
+          log "#{goal_label(info[:number], ri, repos)} (PR ##{info[:retry_pr]}) → goal:retry restored (was running)"
         else
           # Normal goal — transition back to queued
-          transition_label(info[:number], 'goal:running', 'goal:queued')
-          log "Goal ##{info[:number]} → re-queued (was running)"
+          transition_label(info[:number], 'goal:running', 'goal:queued', nwo)
+          log "#{goal_label(info[:number], ri, repos)} → re-queued (was running)"
         end
 
-        delete_clone(org, repo, info[:number])
-        log "Cleaned up clones/#{org}/#{repo}/#{info[:number]}/"
+        delete_clone(ri[:org], ri[:repo], info[:number])
+        log "Cleaned up clones/#{ri[:org]}/#{ri[:repo]}/#{info[:number]}/"
       end
       log 'Done'
       break
@@ -396,74 +407,80 @@ def main(options)
     finished.each do |pid, status|
       info = running.delete(pid)
       number = info[:number]
+      ri = info[:repo]
+      nwo = ri[:nwo]
+      org = ri[:org]
+      repo_name = ri[:repo]
       elapsed = format_elapsed((Time.now - info[:started_at]).to_i)
       is_retry = info[:retry_pr]
+      gl = goal_label(number, ri, repos)
 
       # Wait for stream thread to finish writing all output
       info[:stream_thread]&.join
 
       if status.exitstatus == 0
-        log "Goal ##{number} ralph finished (exit 0, #{elapsed})"
+        log "#{gl} ralph finished (exit 0, #{elapsed})"
 
         if is_retry
           # Retry success — force-push updated branch and remove retry label
           if force_push_branch(info[:dir], info[:retry_branch])
-            log "Goal ##{number} (PR ##{info[:retry_pr]}) force-pushed updated branch"
-            remove_pr_label(info[:retry_pr], 'goal:retry')
-            log "Goal ##{number} (PR ##{info[:retry_pr]}) removed goal:retry label"
+            log "#{gl} (PR ##{info[:retry_pr]}) force-pushed updated branch"
+            remove_pr_label(info[:retry_pr], 'goal:retry', nwo)
+            log "#{gl} (PR ##{info[:retry_pr]}) removed goal:retry label"
           else
-            log "Goal ##{number} (PR ##{info[:retry_pr]}) force-push failed (keeping retry label)"
+            log "#{gl} (PR ##{info[:retry_pr]}) force-push failed (keeping retry label)"
           end
-          delete_clone(org, repo, number)
+          delete_clone(org, repo_name, number)
         else
           # Success — create PR (including spot-check goals)
-          pr_num = create_pr_from_clone(number, info[:title], info[:dir])
+          pr_num = create_pr_from_clone(number, info[:title], info[:dir], nwo)
           if pr_num
-            log "Goal ##{number} PR created → ##{pr_num}"
+            log "#{gl} PR created → ##{pr_num}"
             # Add goal:spot-check label if this is a spot-check goal
             if info[:spot_check]
-              add_pr_label(pr_num, 'goal:spot-check')
-              log "Goal ##{number} PR ##{pr_num} labeled goal:spot-check"
+              add_pr_label(pr_num, 'goal:spot-check', nwo)
+              log "#{gl} PR ##{pr_num} labeled goal:spot-check"
             end
-            if system('gh', 'pr', 'merge', '--auto', '--squash', pr_num.to_s, out: '/dev/null', err: '/dev/null')
-              log "Goal ##{number} auto-merge enabled on PR ##{pr_num}"
+            merge_cmd = ['gh', 'pr', 'merge', '--repo', nwo, '--auto', '--squash', pr_num.to_s]
+            if system(*merge_cmd, out: '/dev/null', err: '/dev/null')
+              log "#{gl} auto-merge enabled on PR ##{pr_num}"
             else
-              log "Goal ##{number} auto-merge failed on PR ##{pr_num} (non-fatal)"
+              log "#{gl} auto-merge failed on PR ##{pr_num} (non-fatal)"
             end
           end
-          transition_label(number, 'goal:running', 'goal:done')
+          transition_label(number, 'goal:running', 'goal:done', nwo)
           completed_count += 1
-          system(STORY_TRY_CLOSE_SCRIPT, number.to_s, out: '/dev/null', err: '/dev/null')
-          log "Goal ##{number} → done"
-          delete_clone(org, repo, number)
+          run_script(STORY_TRY_CLOSE_SCRIPT, number.to_s, repo: nwo)
+          log "#{gl} → done"
+          delete_clone(org, repo_name, number)
         end
       else
-        log "Goal ##{number} ralph finished (exit #{status.exitstatus}, #{elapsed})"
-        delete_clone(org, repo, number)
-        log "Goal ##{number} cleaned up clones/#{org}/#{repo}/#{number}/"
-        retries[number] += 1
+        log "#{gl} ralph finished (exit #{status.exitstatus}, #{elapsed})"
+        delete_clone(org, repo_name, number)
+        log "#{gl} cleaned up clones/#{org}/#{repo_name}/#{number}/"
+        retries[[nwo, number]] += 1
 
         if is_retry
           # Retry failure — re-add retry label or mark stuck
-          if retries[number] > MAX_RETRIES
-            remove_pr_label(info[:retry_pr], 'goal:retry')
-            add_pr_label(info[:retry_pr], 'goal:stuck')
-            log "Goal ##{number} (PR ##{info[:retry_pr]}) → stuck (#{retries[number]} retries exhausted)"
-            notify("Goal ##{number} stuck", "\"#{info[:title]}\" failed #{retries[number]} times (PR ##{info[:retry_pr]})")
+          if retries[[nwo, number]] > MAX_RETRIES
+            remove_pr_label(info[:retry_pr], 'goal:retry', nwo)
+            add_pr_label(info[:retry_pr], 'goal:stuck', nwo)
+            log "#{gl} (PR ##{info[:retry_pr]}) → stuck (#{retries[[nwo, number]]} retries exhausted)"
+            notify("#{gl} stuck", "\"#{info[:title]}\" failed #{retries[[nwo, number]]} times (PR ##{info[:retry_pr]})")
           else
             # Re-add goal:retry label (may have been removed during processing)
-            add_pr_label(info[:retry_pr], 'goal:retry')
-            log "Goal ##{number} (PR ##{info[:retry_pr]}) retry failed → kept goal:retry (retry #{retries[number]}/#{MAX_RETRIES})"
+            add_pr_label(info[:retry_pr], 'goal:retry', nwo)
+            log "#{gl} (PR ##{info[:retry_pr]}) retry failed → kept goal:retry (retry #{retries[[nwo, number]]}/#{MAX_RETRIES})"
           end
         else
           # Normal goal failure
-          if retries[number] > MAX_RETRIES
-            transition_label(number, 'goal:running', 'goal:stuck')
-            log "Goal ##{number} → stuck (#{retries[number]} retries exhausted)"
-            notify("Goal ##{number} stuck", "\"#{info[:title]}\" failed #{retries[number]} times")
+          if retries[[nwo, number]] > MAX_RETRIES
+            transition_label(number, 'goal:running', 'goal:stuck', nwo)
+            log "#{gl} → stuck (#{retries[[nwo, number]]} retries exhausted)"
+            notify("#{gl} stuck", "\"#{info[:title]}\" failed #{retries[[nwo, number]]} times")
           else
-            transition_label(number, 'goal:running', 'goal:queued')
-            log "Goal ##{number} failed → re-queued (retry #{retries[number]}/#{MAX_RETRIES})"
+            transition_label(number, 'goal:running', 'goal:queued', nwo)
+            log "#{gl} failed → re-queued (retry #{retries[[nwo, number]]}/#{MAX_RETRIES})"
           end
         end
       end
@@ -480,27 +497,44 @@ def main(options)
       # Don't delete clones for currently running goals
       next if running.values.any? { |info| info[:number] == number }
 
+      # Derive org/repo from the clone path
+      parts = clone_path.sub("#{CLONE_DIR}/", '').split('/')
+      clone_org = parts[0]
+      clone_repo = parts[1]
+      clone_nwo = "#{clone_org}/#{clone_repo}"
+
       # Check if goal is no longer in spot-check state
-      goal_data = run_script(GOAL_GET_SCRIPT, number.to_s)
+      goal_data = run_script(GOAL_GET_SCRIPT, number.to_s, repo: clone_nwo)
       next unless goal_data && goal_data['ok']
 
       labels = goal_data['labels'] || []
 
       # If not in spot-check, delete the clone
       unless labels.include?('goal:spot-check')
-        delete_clone(org, repo, number)
-        log "Cleaned up clones/#{org}/#{repo}/#{number}/ (goal no longer in spot-check)"
+        delete_clone(clone_org, clone_repo, number)
+        log "Cleaned up clones/#{clone_org}/#{clone_repo}/#{number}/ (goal no longer in spot-check)"
       end
     end
 
     # ── Fill open slots ──
-    # First check for retry PRs (priority over queued goals)
-    retry_prs = list_retry_prs
-    retry_count = retry_prs.size
+    # Collect retries and queued goals across all repos
+    all_retry_prs = []
+    repos.each do |r|
+      prs = list_retry_prs(r[:nwo])
+      prs.each { |pr| pr['_repo'] = r }
+      all_retry_prs.concat(prs)
+    end
 
-    result = run_script(GOAL_LIST_SCRIPT, 'queued')
-    queued = (result && result['ok'] && result['items']) || []
-    queued_count = queued.size
+    all_queued = []
+    repos.each do |r|
+      result = run_script(GOAL_LIST_SCRIPT, 'queued', repo: r[:nwo])
+      items = (result && result['ok'] && result['items']) || []
+      items.each { |g| g['_repo'] = r }
+      all_queued.concat(items)
+    end
+
+    retry_count = all_retry_prs.size
+    queued_count = all_queued.size
     running_count = running.size
 
     if queued_count != last_queued_count || running_count != last_running_count || completed_count != last_completed_count || retry_count > 0
@@ -519,7 +553,12 @@ def main(options)
 
     if available_slots > 0
       # Process retries FIRST (priority over new queued goals)
-      retry_prs.first(available_slots).each do |pr|
+      all_retry_prs.first(available_slots).each do |pr|
+        ri = pr['_repo']
+        nwo = ri[:nwo]
+        remote_url = ri[:url]
+        org = ri[:org]
+        repo_name = ri[:repo]
         pr_number = pr['number']
         branch = pr['headRefName']
         goal_number = extract_goal_number(pr)
@@ -529,28 +568,30 @@ def main(options)
           next
         end
 
+        gl = goal_label(goal_number, ri, repos)
+
         # Fetch original goal body
-        goal_data = run_script(GOAL_GET_SCRIPT, goal_number.to_s)
+        goal_data = run_script(GOAL_GET_SCRIPT, goal_number.to_s, repo: nwo)
         unless goal_data && goal_data['ok']
-          log "Goal ##{goal_number} (PR ##{pr_number}) failed to fetch goal body, skipping"
+          log "#{gl} (PR ##{pr_number}) failed to fetch goal body, skipping"
           next
         end
 
         title = goal_data['title']
 
         # Get retry context
-        checks_url = get_pr_checks_url(pr_number)
-        comments = get_pr_comments(pr_number)
+        checks_url = get_pr_checks_url(pr_number, nwo)
+        comments = get_pr_comments(pr_number, nwo)
 
-        log "Goal ##{goal_number} (PR ##{pr_number}) retry → running (slot #{running.size + 1}/#{max_slots})"
+        log "#{gl} (PR ##{pr_number}) retry → running (slot #{running.size + 1}/#{max_slots})"
 
         # Clone PR branch
-        clone_dir = clone_pr_branch(remote_url, org, repo, goal_number, branch)
+        clone_dir = clone_pr_branch(remote_url, org, repo_name, goal_number, branch)
         unless clone_dir
-          log "Goal ##{goal_number} (PR ##{pr_number}) clone failed, keeping retry label"
+          log "#{gl} (PR ##{pr_number}) clone failed, keeping retry label"
           next
         end
-        log "Goal ##{goal_number} (PR ##{pr_number}) cloned branch #{branch} to clones/#{org}/#{repo}/#{goal_number}/"
+        log "#{gl} (PR ##{pr_number}) cloned branch #{branch} to clones/#{org}/#{repo_name}/#{goal_number}/"
 
         # Build augmented goal file
         augmented_body = build_augmented_goal(goal_data['body'], pr_number, checks_url, comments)
@@ -591,10 +632,10 @@ def main(options)
           end
         end
 
-        log "Goal ##{goal_number} (PR ##{pr_number}) ralph started (pid #{pid}, log: clones/#{org}/#{repo}/#{goal_number}/.pipeline/cache/ralph.log)"
+        log "#{gl} (PR ##{pr_number}) ralph started (pid #{pid}, log: clones/#{org}/#{repo_name}/#{goal_number}/.pipeline/cache/ralph.log)"
 
         # Mark this goal as attempted for fairness tracking
-        attempted.add(goal_number)
+        attempted.add([nwo, goal_number])
 
         running[pid] = {
           number: goal_number,
@@ -605,7 +646,8 @@ def main(options)
           stream_thread: stream_thread,
           wait_thread: wait_thread,
           retry_pr: pr_number,
-          retry_branch: branch
+          retry_branch: branch,
+          repo: ri
         }
 
         available_slots -= 1
@@ -615,99 +657,106 @@ def main(options)
       # Then process queued goals if slots remain
       if available_slots > 0
         # Sort by issue number ascending (FIFO)
-        queued.sort_by! { |g| g['number'] }
+        all_queued.sort_by! { |g| g['number'] }
 
         # Partition into untried and retried goals for fairness
-        untried = queued.reject { |g| attempted.include?(g['number']) }
-        retried = queued.select { |g| attempted.include?(g['number']) }
+        untried = all_queued.reject { |g| attempted.include?([g['_repo'][:nwo], g['number']]) }
+        retried = all_queued.select { |g| attempted.include?([g['_repo'][:nwo], g['number']]) }
 
         # Dispatch untried goals first, then retried
         candidates = (untried + retried).first(available_slots)
 
-      candidates.each do |goal|
-        number = goal['number']
-        title = goal['title']
-        spot_check = goal['spot_check']
+        candidates.each do |goal|
+          ri = goal['_repo']
+          nwo = ri[:nwo]
+          remote_url = ri[:url]
+          org = ri[:org]
+          repo_name = ri[:repo]
+          number = goal['number']
+          title = goal['title']
+          spot_check = goal['spot_check']
+          gl = goal_label(number, ri, repos)
 
-        # Check dependencies before cloning
-        goal_data = run_script(GOAL_GET_SCRIPT, number.to_s)
-        unless goal_data && goal_data['ok']
-          log "Goal ##{number} failed to fetch goal body, skipping"
-          next
-        end
-
-        depends_on = parse_depends(goal_data['body'])
-        unless dependencies_met?(depends_on)
-          log "Goal ##{number} waiting on dependencies: #{depends_on.map { |n| "##{n}" }.join(', ')}"
-          next
-        end
-
-        # Transition to running
-        transition_label(number, 'goal:queued', 'goal:running')
-        log "Goal ##{number} \"#{title}\" → running (slot #{running.size + 1}/#{max_slots})"
-
-        # Clone
-        clone_dir = clone_repo(remote_url, org, repo, number)
-        unless clone_dir
-          log "Goal ##{number} clone failed, re-queuing"
-          transition_label(number, 'goal:running', 'goal:queued')
-          next
-        end
-        log "Goal ##{number} cloned to clones/#{org}/#{repo}/#{number}/"
-
-        # Write goal body into .pipeline/cache/ (gitignored, keeps runtime files out of commits)
-        cache_dir = File.join(clone_dir, '.pipeline', 'cache')
-        FileUtils.mkdir_p(cache_dir)
-        goal_file = File.join(cache_dir, 'goal.md')
-        File.write(goal_file, goal_data['body'])
-
-        # Spawn ralph with real-time log streaming
-        ralph_log = File.join(cache_dir, 'ralph.log')
-        ralph_args = [
-          RALPH_SCRIPT,
-          "--goal=.pipeline/cache/goal.md",
-          '--log-mode',
-          '--no-pull-request',
-          "--model=#{model}",
-          "--reasoning=#{reasoning}",
-          "--name=#{title}"
-        ]
-        ralph_args << "--duration=#{duration}" if duration
-
-        # Use Open3.popen2e to stream output with proper wait_thread handling
-        log_file = File.open(ralph_log, 'w')
-        stdin, stdout_and_stderr, wait_thread = Open3.popen2e(*ralph_args, chdir: clone_dir)
-        stdin.close  # We don't need stdin
-        pid = wait_thread.pid
-
-        # Stream output in a background thread
-        stream_thread = Thread.new do
-          begin
-            stdout_and_stderr.each_line do |line|
-              log_file.puts(line)
-              log_file.flush
-            end
-          ensure
-            stdout_and_stderr.close
-            log_file.close
+          # Check dependencies before cloning
+          goal_data = run_script(GOAL_GET_SCRIPT, number.to_s, repo: nwo)
+          unless goal_data && goal_data['ok']
+            log "#{gl} failed to fetch goal body, skipping"
+            next
           end
+
+          depends_on = parse_depends(goal_data['body'])
+          unless dependencies_met?(depends_on, nwo)
+            log "#{gl} waiting on dependencies: #{depends_on.map { |n| "##{n}" }.join(', ')}"
+            next
+          end
+
+          # Transition to running
+          transition_label(number, 'goal:queued', 'goal:running', nwo)
+          log "#{gl} \"#{title}\" → running (slot #{running.size + 1}/#{max_slots})"
+
+          # Clone
+          clone_dir = clone_repo(remote_url, org, repo_name, number)
+          unless clone_dir
+            log "#{gl} clone failed, re-queuing"
+            transition_label(number, 'goal:running', 'goal:queued', nwo)
+            next
+          end
+          log "#{gl} cloned to clones/#{org}/#{repo_name}/#{number}/"
+
+          # Write goal body into .pipeline/cache/ (gitignored, keeps runtime files out of commits)
+          cache_dir = File.join(clone_dir, '.pipeline', 'cache')
+          FileUtils.mkdir_p(cache_dir)
+          goal_file = File.join(cache_dir, 'goal.md')
+          File.write(goal_file, goal_data['body'])
+
+          # Spawn ralph with real-time log streaming
+          ralph_log = File.join(cache_dir, 'ralph.log')
+          ralph_args = [
+            RALPH_SCRIPT,
+            "--goal=.pipeline/cache/goal.md",
+            '--log-mode',
+            '--no-pull-request',
+            "--model=#{model}",
+            "--reasoning=#{reasoning}",
+            "--name=#{title}"
+          ]
+          ralph_args << "--duration=#{duration}" if duration
+
+          # Use Open3.popen2e to stream output with proper wait_thread handling
+          log_file = File.open(ralph_log, 'w')
+          stdin, stdout_and_stderr, wait_thread = Open3.popen2e(*ralph_args, chdir: clone_dir)
+          stdin.close  # We don't need stdin
+          pid = wait_thread.pid
+
+          # Stream output in a background thread
+          stream_thread = Thread.new do
+            begin
+              stdout_and_stderr.each_line do |line|
+                log_file.puts(line)
+                log_file.flush
+              end
+            ensure
+              stdout_and_stderr.close
+              log_file.close
+            end
+          end
+
+          log "#{gl} ralph started (pid #{pid}, log: clones/#{org}/#{repo_name}/#{number}/.pipeline/cache/ralph.log)"
+
+          # Mark this goal as attempted for fairness tracking
+          attempted.add([nwo, number])
+
+          running[pid] = {
+            number: number,
+            title: title,
+            spot_check: spot_check,
+            dir: clone_dir,
+            started_at: Time.now,
+            stream_thread: stream_thread,
+            wait_thread: wait_thread,
+            repo: ri
+          }
         end
-
-        log "Goal ##{number} ralph started (pid #{pid}, log: clones/#{org}/#{repo}/#{number}/.pipeline/cache/ralph.log)"
-
-        # Mark this goal as attempted for fairness tracking
-        attempted.add(number)
-
-        running[pid] = {
-          number: number,
-          title: title,
-          spot_check: spot_check,
-          dir: clone_dir,
-          started_at: Time.now,
-          stream_thread: stream_thread,
-          wait_thread: wait_thread
-        }
-      end
       end
     end
 
@@ -729,7 +778,7 @@ OptionParser.new do |opts|
   opts.banner = <<~BANNER
     ralph-runs - Pipeline coordinator for concurrent goal execution
 
-    Usage: ralph-runs --max N [--model MODEL] [--reasoning LEVEL] [--duration DURATION]
+    Usage: ralph-runs --max N [options] REPO_URL [REPO_URL ...]
   BANNER
 
   opts.on('--max=N', Integer, 'Maximum concurrent ralphs (required)') do |n|
@@ -756,13 +805,29 @@ end.parse!
 
 if options[:max].nil? || options[:max] < 1
   $stderr.puts 'Error: --max=N is required (must be >= 1)'
-  $stderr.puts 'Usage: ralph-runs --max N [--model MODEL] [--reasoning LEVEL] [--duration DURATION]'
+  $stderr.puts 'Usage: ralph-runs --max N [options] REPO_URL [REPO_URL ...]'
   exit 1
+end
+
+if ARGV.empty?
+  $stderr.puts 'Error: at least one REPO_URL is required'
+  $stderr.puts 'Usage: ralph-runs --max N [options] REPO_URL [REPO_URL ...]'
+  exit 1
+end
+
+repos = ARGV.map do |url|
+  org_repo = parse_org_repo(url)
+  unless org_repo
+    $stderr.puts "Error: could not parse org/repo from URL: #{url}"
+    exit 1
+  end
+  org, repo = org_repo
+  { url: url, org: org, repo: repo, nwo: "#{org}/#{repo}" }
 end
 
 if __FILE__ == $PROGRAM_NAME
   begin
-    main(options)
+    main(options, repos)
   rescue Interrupt
     exit 130
   end

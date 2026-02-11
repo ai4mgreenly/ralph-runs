@@ -4,7 +4,7 @@
 #
 # scripts/goal-retry - Mark a PR for retry
 #
-# Usage: goal-retry <pr-number>
+# Usage: goal-retry [--repo OWNER/REPO] <pr-number>
 #
 # Applies goal:retry label to a PR, triggering the orchestrator to
 # re-process the goal with retry context (CI results + PR comments).
@@ -14,15 +14,19 @@
 #
 
 require 'json'
+require 'optparse'
 
 def main
-  if ARGV.include?('--help') || ARGV.include?('-h')
-    puts <<~HELP
-      Usage: goal-retry <pr-number>
+  nwo = nil
+
+  OptionParser.new do |opts|
+    opts.banner = <<~HELP
+      Usage: goal-retry [--repo OWNER/REPO] <pr-number>
 
       Mark a PR for retry in the pipeline.
 
       Arguments:
+        --repo       Optional. GitHub repo in OWNER/REPO format.
         pr-number    GitHub Pull Request number (required)
 
       What it does:
@@ -36,9 +40,11 @@ def main
 
       Examples:
         goal-retry 123
+        goal-retry 123 --repo mgreenly/ikigai
     HELP
-    exit 0
-  end
+
+    opts.on('--repo=REPO', 'GitHub repo (OWNER/REPO)') { |r| nwo = r }
+  end.parse!
 
   pr_number = ARGV[0]&.to_i
 
@@ -48,9 +54,9 @@ def main
   end
 
   # Add goal:retry label
-  ok = system('gh', 'pr', 'edit', pr_number.to_s,
-              '--add-label', 'goal:retry',
-              out: '/dev/null', err: '/dev/null')
+  cmd = ['gh', 'pr', 'edit', pr_number.to_s, '--add-label', 'goal:retry']
+  cmd += ['--repo', nwo] if nwo
+  ok = system(*cmd, out: '/dev/null', err: '/dev/null')
 
   unless ok
     puts JSON.generate(ok: false, items: ["failed to add goal:retry label to PR ##{pr_number}"])

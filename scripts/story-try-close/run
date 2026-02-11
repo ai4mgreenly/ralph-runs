@@ -4,13 +4,14 @@
 #
 # scripts/story-try-close - Check if a story should be closed after a goal completes
 #
-# Usage: story-try-close <goal_number>
+# Usage: story-try-close [--repo OWNER/REPO] <goal_number>
 #
 # Output: JSON {"ok": true, "closed": true/false, "story": N}
 # Exit code: 0 on success, 1 on failure
 #
 
 require 'json'
+require 'optparse'
 
 def has_label?(labels, target)
   labels.any? do |label|
@@ -26,11 +27,10 @@ def parse_story_ref(body)
   match ? match[1].to_i : nil
 end
 
-def get_goal(number)
-  cmd = [
-    'gh', 'issue', 'view', number.to_s,
-    '--json', 'number,title,labels,body,state'
-  ]
+def get_goal(number, nwo: nil)
+  cmd = ['gh', 'issue', 'view', number.to_s]
+  cmd += ['--repo', nwo] if nwo
+  cmd += ['--json', 'number,title,labels,body,state']
 
   stdout = IO.popen(cmd, err: '/dev/null', &:read)
   return nil if $?.exitstatus != 0
@@ -38,11 +38,10 @@ def get_goal(number)
   JSON.parse(stdout) rescue nil
 end
 
-def get_story(number)
-  cmd = [
-    'gh', 'issue', 'view', number.to_s,
-    '--json', 'number,title,labels,body,state'
-  ]
+def get_story(number, nwo: nil)
+  cmd = ['gh', 'issue', 'view', number.to_s]
+  cmd += ['--repo', nwo] if nwo
+  cmd += ['--json', 'number,title,labels,body,state']
 
   stdout = IO.popen(cmd, err: '/dev/null', &:read)
   return nil if $?.exitstatus != 0
@@ -50,10 +49,11 @@ def get_story(number)
   JSON.parse(stdout) rescue nil
 end
 
-def find_linked_goals(story_number)
+def find_linked_goals(story_number, nwo: nil)
   # Search for goals that reference this story
-  cmd = [
-    'gh', 'issue', 'list',
+  cmd = ['gh', 'issue', 'list']
+  cmd += ['--repo', nwo] if nwo
+  cmd += [
     '--label', 'pipeline,goal',
     '--json', 'number,title,labels,body',
     '--limit', '100',
@@ -80,20 +80,24 @@ def all_goals_done?(goals)
   end
 end
 
-def close_story(number)
+def close_story(number, nwo: nil)
   cmd = ['gh', 'issue', 'close', number.to_s]
+  cmd += ['--repo', nwo] if nwo
   IO.popen(cmd, err: '/dev/null', &:read)
   $?.exitstatus == 0
 end
 
 def main
-  if ARGV.include?('--help') || ARGV.include?('-h')
-    puts <<~HELP
-      Usage: story-try-close <goal_number>
+  nwo = nil
+
+  OptionParser.new do |opts|
+    opts.banner = <<~HELP
+      Usage: story-try-close [--repo OWNER/REPO] <goal_number>
 
       Check if a story should be closed after a goal completes.
 
       Arguments:
+        --repo         Optional. GitHub repo in OWNER/REPO format.
         goal_number    GitHub Issue number for a goal (required)
 
       Behavior:
@@ -115,9 +119,11 @@ def main
 
       Examples:
         story-try-close 42
+        story-try-close 42 --repo mgreenly/ikigai
     HELP
-    exit 0
-  end
+
+    opts.on('--repo=REPO', 'GitHub repo (OWNER/REPO)') { |r| nwo = r }
+  end.parse!
 
   goal_number = ARGV[0]&.to_i
 
@@ -127,7 +133,7 @@ def main
   end
 
   # Fetch the goal
-  goal = get_goal(goal_number)
+  goal = get_goal(goal_number, nwo: nwo)
   unless goal
     puts JSON.generate(ok: false, items: ["goal ##{goal_number} not found"])
     exit 1
@@ -148,7 +154,7 @@ def main
   end
 
   # Fetch the story
-  story = get_story(story_number)
+  story = get_story(story_number, nwo: nwo)
   unless story
     puts JSON.generate(ok: false, items: ["story ##{story_number} not found"])
     exit 1
@@ -161,7 +167,7 @@ def main
   end
 
   # Find all goals linked to this story
-  goals = find_linked_goals(story_number)
+  goals = find_linked_goals(story_number, nwo: nwo)
 
   # Don't close if no goals (shouldn't happen but be safe)
   if goals.empty?
@@ -172,7 +178,7 @@ def main
   # Check if all goals are done
   if all_goals_done?(goals)
     # Close the story
-    if close_story(story_number)
+    if close_story(story_number, nwo: nwo)
       puts JSON.generate(ok: true, closed: true, story: story_number)
       exit 0
     else
