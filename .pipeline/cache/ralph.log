@@ -55,3 +55,25 @@ Perfect! All acceptance criteria have been met:
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 15
+  Tool Uses: 6
+
+  Tokens:
+    Input: 111
+    Output: 21
+    Cache Read: 190,941
+    Cache Create: 18,082
+    Total: 209,155
+
+  Cost: $0.1257
+
+  Time:
+    LLM: 29s
+    Tools: 0s
+    Other: 2s
+    Total: 33s
+══════════════════════════════════════════════════════════════════════
+
