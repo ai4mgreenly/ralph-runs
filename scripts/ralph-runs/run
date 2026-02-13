@@ -50,6 +50,7 @@ MAX_RETRIES = 3
 
 def init_log
   FileUtils.mkdir_p(LOG_DIR)
+  FileUtils.rm_f(LOG_FILE)
   @log_file = File.open(LOG_FILE, 'w')
 end
 
