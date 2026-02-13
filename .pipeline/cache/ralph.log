@@ -62,3 +62,25 @@ The rescue clause at lines 182-184 now logs exception details before returning n
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 19
+  Tool Uses: 6
+
+  Tokens:
+    Input: 139
+    Output: 20
+    Cache Read: 378,009
+    Cache Create: 46,629
+    Total: 424,797
+
+  Cost: $0.2890
+
+  Time:
+    LLM: 37s
+    Tools: 1s
+    Other: 3s
+    Total: 42s
+══════════════════════════════════════════════════════════════════════
+
