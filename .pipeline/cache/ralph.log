@@ -108,3 +108,25 @@ Perfect! Now let me verify the changes and commit them. (+7s / 1m 46s) [15.6%]
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 40
+  Tool Uses: 19
+
+  Tokens:
+    Input: 292
+    Output: 111
+    Cache Read: 1,039,739
+    Cache Create: 77,102
+    Total: 1,117,244
+
+  Cost: $0.6036
+
+  Time:
+    LLM: 2m 8s
+    Tools: 5s
+    Other: 2s
+    Total: 2m 17s
+══════════════════════════════════════════════════════════════════════
+
