@@ -56,3 +56,25 @@ Perfect! The change has been successfully applied and verified.
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 16
+  Tool Uses: 5
+
+  Tokens:
+    Input: 118
+    Output: 16
+    Cache Read: 305,160
+    Cache Create: 45,621
+    Total: 350,915
+
+  Cost: $0.2632
+
+  Time:
+    LLM: 34s
+    Tools: 1s
+    Other: 2s
+    Total: 38s
+══════════════════════════════════════════════════════════════════════
+
