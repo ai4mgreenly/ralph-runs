@@ -85,9 +85,9 @@ ralph-runs/
 │   │   ├── pipeline/SKILL.md     # Goal commands and pipeline workflow
 │   │   └── goal-authoring/SKILL.md  # How to write effective goals
 │   ├── skillsets/                 # Composite skill bundles (loaded via /skillset)
-│   │   ├── developer.json        # For humans creating goals (jj + pipeline + goal-authoring)
-│   │   ├── implementor.json      # For ralph executing goals (jj + pipeline)
-│   │   └── meta.json             # For improving .claude/ itself (jj only)
+│   │   ├── meta.json             # For improving .claude/ itself (jj + pipeline + goal-authoring)
+│   │   ├── ralph-preloads.json   # Skills injected into ralph's prompt (jj)
+│   │   └── ralph-recommends.json # Skills advertised to ralph by name only (empty)
 │   └── commands/                 # Custom Claude Code commands
 │       ├── load.md               # /load command implementation
 │       └── skillset.md           # /skillset command implementation
@@ -259,9 +259,9 @@ The `.claude/` directory implements a modular instruction system:
 - Skillsets define `preload` (loaded immediately) and `advertise` (available on demand) arrays
 
 Three skillsets exist:
-- **developer** — for humans interacting with Claude to create goals (loads jj + pipeline + goal-authoring)
-- **implementor** — for ralph executing goals (loads jj + pipeline)
-- **meta** — for modifying the .claude/ system itself (loads jj only)
+- **meta** — for modifying the .claude/ system itself (loads jj + pipeline + goal-authoring)
+- **ralph-preloads** — skills injected into ralph's prompt (jj)
+- **ralph-recommends** — skills advertised to ralph by name/description only (empty)
 
 ## Dependencies
 
