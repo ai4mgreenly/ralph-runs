@@ -25,6 +25,7 @@ require 'set'
 require 'open3'
 require 'erb'
 require 'timeout'
+require 'shellwords'
 
 SCRIPT_DIR = File.dirname(File.realpath(__FILE__))
 PROJECT_ROOT = File.expand_path('../..', SCRIPT_DIR)
@@ -165,15 +166,19 @@ def generate_pr_description(goal_id)
     },
     required: ['description']
   })
-  cmd = ['claude', '-p', '--model', 'haiku', '--json-schema', schema]
+  cmd = "ANTHROPIC_API_KEY= claude -p --model haiku --output-format json --json-schema #{Shellwords.escape(schema)}"
 
-  stdout, stderr, status = Timeout.timeout(60) do
-    Open3.capture3({'ANTHROPIC_API_KEY' => ''}, *cmd, stdin_data: prompt)
+  stdout = Timeout.timeout(60) do
+    IO.popen(cmd, 'r+') do |io|
+      io.write(prompt)
+      io.close_write
+      io.read
+    end
   end
-  return nil unless status.exitstatus == 0
+  return nil if stdout.nil? || stdout.empty?
 
   result = JSON.parse(stdout)
-  result['description']
+  result.dig('structured_output', 'description')
 rescue StandardError => e
   log "PR description generation failed: #{e.class}: #{e.message}"
   nil
