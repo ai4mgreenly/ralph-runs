@@ -32,6 +32,7 @@ PR_DESCRIPTION_TEMPLATE = File.join(SCRIPT_DIR, 'pr-description.md.erb')
 RALPH_DIR = ENV['RALPH_DIR'] || File.join(ENV['HOME'], '.local', 'state', 'ralph')
 CLONE_DIR = File.join(RALPH_DIR, 'clones')
 LOG_DIR = File.join(RALPH_DIR, 'logs')
+GOAL_DIR = File.join(RALPH_DIR, 'goals')
 LOG_FILE = File.join(LOG_DIR, 'ralph-runs.log')
 RALPH_SCRIPT = File.join(SCRIPT_DIR, '..', 'ralph', 'run')
 NOTIFY_SCRIPT = File.join(SCRIPT_DIR, '..', 'notify', 'run')
@@ -104,16 +105,6 @@ def build_retry_context(goal_body, comments)
   parts.join("\n")
 end
 
-def ensure_pipeline_cache(dest)
-  cache_dir = File.join(dest, '.pipeline', 'cache')
-  gitkeep = File.join(cache_dir, '.gitkeep')
-  return if File.exist?(gitkeep)
-
-  FileUtils.mkdir_p(cache_dir)
-  FileUtils.touch(gitkeep)
-  system('jj', 'commit', '-m', 'Add .pipeline/cache directory',
-         chdir: dest, out: '/dev/null', err: '/dev/null')
-end
 
 def add_pr_label(pr_number, label, nwo)
   system('gh', 'pr', 'edit', pr_number.to_s,
@@ -131,8 +122,6 @@ def clone_repo(remote_url, org, repo, goal_id)
   # Initialize jj so ralph's commits work inside the clone
   system('jj', 'git', 'init', chdir: dest, out: '/dev/null', err: '/dev/null')
 
-  # Ensure .pipeline/cache/ is tracked so it survives jj commits
-  ensure_pipeline_cache(dest)
   dest
 end
 
@@ -141,9 +130,15 @@ def delete_clone(org, repo, goal_id)
   FileUtils.rm_rf(dest) if Dir.exist?(dest)
 end
 
-def generate_pr_description(clone_dir)
-  goal_file = File.join(clone_dir, '.pipeline', 'cache', 'goal.md')
-  progress_file = File.join(clone_dir, '.pipeline', 'cache', 'goal-progress.jsonl')
+def delete_goal_dir(goal_id)
+  dest = File.join(GOAL_DIR, goal_id.to_s)
+  FileUtils.rm_rf(dest) if Dir.exist?(dest)
+end
+
+def generate_pr_description(goal_id)
+  goal_dir = File.join(GOAL_DIR, goal_id.to_s)
+  goal_file = File.join(goal_dir, 'goal.md')
+  progress_file = File.join(goal_dir, 'goal-progress.jsonl')
 
   # Read goal body
   return nil unless File.exist?(goal_file)
@@ -184,7 +179,7 @@ rescue StandardError => e
   nil
 end
 
-def create_pr_from_clone(goal_id, title, clone_dir, nwo)
+def create_pr_from_clone(goal_id, title, clone_dir, nwo, goal_id_for_desc = nil)
   branch = "goal-#{goal_id}-#{Time.now.to_i.to_s(36)}"
 
   # Commit any uncommitted working copy changes
@@ -213,7 +208,7 @@ def create_pr_from_clone(goal_id, title, clone_dir, nwo)
   end
 
   # Create PR
-  generated_desc = generate_pr_description(clone_dir)
+  generated_desc = generate_pr_description(goal_id_for_desc || goal_id)
   if generated_desc && !generated_desc.empty?
     body = "#{generated_desc}\n\nGoal ##{goal_id}"
   else
@@ -305,7 +300,8 @@ def main(options)
         log "#{goal_label(goal_id, ri)} → re-queued (was running)"
 
         delete_clone(ri[:org], ri[:repo], goal_id)
-        log "Cleaned up clones/#{ri[:org]}/#{ri[:repo]}/#{goal_id}/"
+        delete_goal_dir(goal_id)
+        log "Cleaned up clones/#{ri[:org]}/#{ri[:repo]}/#{goal_id}/ and goals/#{goal_id}/"
       end
       log 'Done'
       break
@@ -337,7 +333,7 @@ def main(options)
         log "#{gl} ralph finished (exit 0, #{elapsed})"
 
         # Create PR
-        pr_num = create_pr_from_clone(goal_id, info[:title], info[:dir], nwo)
+        pr_num = create_pr_from_clone(goal_id, info[:title], info[:dir], nwo, goal_id)
         if pr_num
           log "#{gl} PR created → ##{pr_num}"
         end
@@ -364,6 +360,7 @@ def main(options)
           completed_count += 1
           log "#{gl} → done"
           delete_clone(org, repo_name, goal_id)
+          delete_goal_dir(goal_id)
         end
       else
         log "#{gl} ralph finished (exit #{status.exitstatus}, #{elapsed})"
@@ -374,6 +371,7 @@ def main(options)
           log "#{gl} → stuck (#{retries[goal_id]} retries exhausted)"
           notify("#{gl} stuck", "\"#{info[:title]}\" failed #{retries[goal_id]} times")
           delete_clone(org, repo_name, goal_id)
+          delete_goal_dir(goal_id)
         else
           # Post failure context, mark stuck, requeue
           post_comment(goal_id, "Ralph failed (exit #{status.exitstatus}, attempt #{retries[goal_id]}/#{MAX_RETRIES})")
@@ -381,6 +379,7 @@ def main(options)
           run_script(GOAL_RETRY_SCRIPT, goal_id.to_s)
           log "#{gl} failed → re-queued (retry #{retries[goal_id]}/#{MAX_RETRIES})"
           delete_clone(org, repo_name, goal_id)
+          delete_goal_dir(goal_id)
         end
       end
     end
@@ -489,17 +488,17 @@ def main(options)
           goal_body = build_retry_context(goal_body, comments) unless comments.empty?
         end
 
-        # Write goal body into .pipeline/cache/
-        cache_dir = File.join(clone_dir, '.pipeline', 'cache')
-        FileUtils.mkdir_p(cache_dir)
-        goal_file = File.join(cache_dir, 'goal.md')
+        # Write goal body into GOAL_DIR
+        goal_dir = File.join(GOAL_DIR, goal_id.to_s)
+        FileUtils.mkdir_p(goal_dir)
+        goal_file = File.join(goal_dir, 'goal.md')
         File.write(goal_file, goal_body)
 
         # Spawn ralph with real-time log streaming
-        ralph_log = File.join(cache_dir, 'ralph.log')
+        ralph_log = File.join(goal_dir, 'ralph.log')
         ralph_args = [
           RALPH_SCRIPT,
-          "--goal=.pipeline/cache/goal.md",
+          "--goal=#{goal_file}",
           '--log-mode',
           '--no-pull-request',
           "--model=#{model}",
@@ -527,7 +526,7 @@ def main(options)
           end
         end
 
-        log "#{gl} ralph started (pid #{pid}, log: clones/#{org}/#{repo_name}/#{goal_id}/.pipeline/cache/ralph.log)"
+        log "#{gl} ralph started (pid #{pid}, log: goals/#{goal_id}/ralph.log)"
 
         # Mark this goal as attempted for fairness tracking
         attempted.add(goal_id)
