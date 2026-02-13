@@ -179,7 +179,8 @@ def generate_pr_description(clone_dir)
 
   result = JSON.parse(stdout)
   result['description']
-rescue StandardError
+rescue StandardError => e
+  log "PR description generation failed: #{e.class}: #{e.message}"
   nil
 end
 
