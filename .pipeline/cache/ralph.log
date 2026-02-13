@@ -42,3 +42,25 @@ Perfect! The file PING.md now contains exactly "pong" as required. The goal is c
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 12
+  Tool Uses: 4
+
+  Tokens:
+    Input: 90
+    Output: 15
+    Cache Read: 121,000
+    Cache Create: 41,786
+    Total: 162,891
+
+  Cost: $0.1935
+
+  Time:
+    LLM: 29s
+    Tools: 0s
+    Other: 2s
+    Total: 32s
+══════════════════════════════════════════════════════════════════════
+
