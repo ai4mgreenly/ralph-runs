@@ -1,9 +1,9 @@
 ## Objective
 
-Create a file named PING.md in the root of the repository with the contents pong.
+Delete the file PING.md from the root of the repository and create a new file called PONG.md at the root with the content "ping".
 
 ## Requirements
 
-- Create a file called PING.md at the repository root
-- The file should contain exactly: pong
-- No trailing newline or extra content
+- Delete PING.md from the repository root
+- Create PONG.md at the repository root
+- PONG.md should contain exactly: ping

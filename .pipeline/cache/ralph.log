@@ -60,3 +60,25 @@ Perfect! I've successfully completed the goal:
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 17
+  Tool Uses: 8
+
+  Tokens:
+    Input: 125
+    Output: 80
+    Cache Read: 226,087
+    Cache Create: 17,718
+    Total: 244,010
+
+  Cost: $0.1358
+
+  Time:
+    LLM: 32s
+    Tools: 4s
+    Other: 3s
+    Total: 40s
+══════════════════════════════════════════════════════════════════════
+
