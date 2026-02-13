@@ -78,6 +78,8 @@ goal-queue <id>
 
 ## Review Goals
 
+**Never add `--review` unless the user explicitly requests it.** The default is auto-merge. Only the user decides when a goal needs human review — do not add `--review` based on your own judgment about risk or complexity.
+
 Pass `--review` to `goal-create` to require human review before the goal is marked done. After Ralph finishes, the goal enters `reviewing` state instead of `done`.
 
 ```bash
