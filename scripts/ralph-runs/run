@@ -24,6 +24,7 @@ require 'fileutils'
 require 'set'
 require 'open3'
 require 'erb'
+require 'timeout'
 
 SCRIPT_DIR = File.dirname(File.realpath(__FILE__))
 PROJECT_ROOT = File.expand_path('../..', SCRIPT_DIR)
@@ -162,10 +163,18 @@ def generate_pr_description(clone_dir)
   prompt = template.result(binding)
 
   # Invoke Claude with Haiku model
-  schema = JSON.generate({ description: 'string' })
+  schema = JSON.generate({
+    type: 'object',
+    properties: {
+      description: { type: 'string' }
+    },
+    required: ['description']
+  })
   cmd = ['claude', '-p', '--model', 'haiku', '--json-schema', schema]
 
-  stdout, stderr, status = Open3.capture3(*cmd, stdin_data: prompt)
+  stdout, stderr, status = Timeout.timeout(60) do
+    Open3.capture3(*cmd, stdin_data: prompt)
+  end
   return nil unless status.exitstatus == 0
 
   result = JSON.parse(stdout)
