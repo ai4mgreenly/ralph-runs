@@ -82,3 +82,25 @@ The `generate_pr_description` function will no longer block the orchestrator ind
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 24
+  Tool Uses: 9
+
+  Tokens:
+    Input: 174
+    Output: 47
+    Cache Read: 378,327
+    Cache Create: 30,432
+    Total: 408,980
+
+  Cost: $0.2288
+
+  Time:
+    LLM: 53s
+    Tools: 1s
+    Other: 2s
+    Total: 57s
+══════════════════════════════════════════════════════════════════════
+
