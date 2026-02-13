@@ -324,10 +324,9 @@ class Ralph
       summary_end: summary_end,
       summary: summary_content,
       recent: recent,
+      agents_md: load_agents_md,
       skills: load_skills,
-      advertised_skills: build_advertised_skills,
-      pull_request: @pull_request,
-      branch_name: @branch_name
+      advertised_skills: build_advertised_skills
     })
   end
 
@@ -420,14 +419,16 @@ class Ralph
     end.compact
   end
 
+  def load_agents_md
+    return nil unless File.exist?('AGENTS.md')
+
+    File.read('AGENTS.md')
+  end
+
   def load_skills
-    # Load implementor skillset (excluding jj - ralph handles commits itself)
-    skillset_file = '.claude/skillsets/implementor.json'
-    skillset = JSON.parse(File.read(skillset_file))
+    skillset = JSON.parse(File.read('.claude/skillsets/ralph.json'))
 
-    skills_to_load = skillset['preload'] - ['jj']
-
-    skills_to_load.map do |skill_name|
+    skillset['preload'].map do |skill_name|
       skill_file = ".claude/library/#{skill_name}/SKILL.md"
       content = File.read(skill_file)
       "## #{skill_name}\n\n#{content}"
@@ -435,22 +436,21 @@ class Ralph
   end
 
   def build_advertised_skills
-    # Advertise skills from developer that aren't in implementor (excluding jj)
-    implementor = JSON.parse(File.read('.claude/skillsets/implementor.json'))['preload']
-    developer = JSON.parse(File.read('.claude/skillsets/developer.json'))['preload']
+    skillset = JSON.parse(File.read('.claude/skillsets/ralph.json'))
 
-    extra_skills = (developer - implementor) - ['jj']
+    (skillset['advertise'] || []).map do |entry|
+      skill_name = entry.is_a?(Hash) ? entry['skill'] : entry
+      desc = entry.is_a?(Hash) ? entry['description'] : nil
 
-    extra_skills.map do |skill_name|
-      skill_file = ".claude/library/#{skill_name}/SKILL.md"
-      next unless File.exist?(skill_file)
+      unless desc
+        skill_file = ".claude/library/#{skill_name}/SKILL.md"
+        next unless File.exist?(skill_file)
 
-      # Extract description from YAML frontmatter
-      content = File.read(skill_file)
-      if content =~ /^description:\s*(.+)$/
-        desc = $1.strip
-        "| `#{skill_name}` | #{desc} |"
+        content = File.read(skill_file)
+        desc = $1.strip if content =~ /^description:\s*(.+)$/
       end
+
+      "| `#{skill_name}` | #{desc} |" if desc
     end.compact.join("\n")
   end
 

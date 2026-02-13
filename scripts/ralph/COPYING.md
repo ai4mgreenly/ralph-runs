@@ -70,7 +70,7 @@ cp .claude/library/ralph/SKILL.md ~/.claude/library/ralph/SKILL.md
 
 **You will need to edit `prompt.md.erb`** - it contains project-specific content:
 - References to project-specific scripts (`.claude/scripts/compile/run`, etc.)
-- Skill loading from `.claude/skillsets/implementor.json`
+- Skill loading from `.claude/skillsets/ralph-preloads.json` and `.claude/skillsets/ralph-recommends.json`
 - Project-specific guidance and scripts table
 
 At minimum, remove or replace:
@@ -112,7 +112,7 @@ end
 
 ### Change skillset integration
 
-Ralph loads skills from `.claude/skillsets/implementor.json`. Modify `load_skills` and `build_advertised_skills` to match your skill structure, or remove skill loading entirely if you don't use that system.
+Ralph loads skills from `.claude/skillsets/ralph-preloads.json` (injected into the prompt) and `.claude/skillsets/ralph-recommends.json` (listed by name/description only). Modify `load_skills` and `build_advertised_skills` to match your skill structure, or remove skill loading entirely if you don't use that system.
 
 ### Notifications (optional)
 
