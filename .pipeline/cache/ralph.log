@@ -34,3 +34,25 @@ I need to remove the PING.md file from the project root. Let me start by verifyi
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 8
+  Tool Uses: 3
+
+  Tokens:
+    Input: 62
+    Output: 20
+    Cache Read: 65,333
+    Cache Create: 39,599
+    Total: 105,014
+
+  Cost: $0.1686
+
+  Time:
+    LLM: 15s
+    Tools: 2s
+    Other: 3s
+    Total: 21s
+══════════════════════════════════════════════════════════════════════
+

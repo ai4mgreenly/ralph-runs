@@ -1,9 +1,15 @@
 ## Objective
 
-Create a file named PING.md in the root of the repository with the contents pong.
+Remove the PING.md file from the project root. It was created for testing purposes and is no longer needed.
 
-## Requirements
+## Reference
 
-- Create a file called PING.md at the repository root
-- The file should contain exactly: pong
-- No trailing newline or extra content
+- PING.md — File to remove
+
+## Outcomes
+
+- PING.md no longer exists at the project root
+
+## Acceptance
+
+- `test ! -f PING.md` exits 0
