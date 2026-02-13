@@ -1,31 +1,23 @@
 ---
 name: goal-authoring
-description: Writing effective goal files for Ralph execution
+description: Writing effective goals for Ralph execution
 ---
 
 # Goal Authoring
 
-Writing effective goal files for Ralph loop execution.
-
-## File Naming Convention
-
-Goal files MUST be named: `<name>-ralph-goal.md`
-
-**Examples:**
-- `list-tool-ralph-goal.md` ✓
-- `web-fetch-ralph-goal.md` ✓
-- `list-tool-goal.md` ✗ (missing "ralph")
-- `list-tool.md` ✗ (missing "ralph-goal")
+Writing effective goals for Ralph loop execution.
 
 ## Core Principle
 
-**Ralph has unlimited context through iteration.** Don't artificially limit goals or references - Ralph can read all plan documents, iterate through failures, and persist until outcomes are achieved.
+**Ralph has unlimited context through iteration.** Don't artificially limit goals or references — Ralph can read all project documents, iterate through failures, and persist until outcomes are achieved.
 
-## Goal File Format
+## Goal Body Format
+
+Goals are created via `goal-create` with body on stdin. The body must follow this structure:
 
 ```markdown
 ## Objective
-[Complete objective - not tiny steps]
+[Complete objective — not tiny steps]
 
 ## Reference
 [All relevant docs + codebase examples]
@@ -34,30 +26,30 @@ Goal files MUST be named: `<name>-ralph-goal.md`
 [Measurable, verifiable outcomes]
 
 ## Acceptance
-[Success criteria: make check, specific tests, etc.]
+[Success criteria: tests pass, specific commands succeed, etc.]
 ```
 
 ## Key Principles
 
-1. **Specify WHAT, never HOW** - Outcomes, not steps/order
-2. **Reference liberally** - All relevant docs, Ralph reads across iterations
-3. **One cohesive objective** - Not artificially small, not entire release
-4. **Complete acceptance criteria** - Ralph needs to know when done
-5. **Trust Ralph to iterate** - Discovers path, learns from failures
-6. **Be explicit about discovery** - If work requires finding all instances of X, state it clearly in both objective and outcomes. Ralph has gotten stuck when discovery wasn't explicit. Write "Discover and fix all hardcoded paths" not "Fix hardcoded paths" or "Fix paths at lines 10, 25, 40"
+1. **Specify WHAT, never HOW** — Outcomes, not steps/order
+2. **Reference liberally** — All relevant docs, Ralph reads across iterations
+3. **One cohesive objective** — Not artificially small, not entire release
+4. **Complete acceptance criteria** — Ralph needs to know when done
+5. **Trust Ralph to iterate** — Discovers path, learns from failures
+6. **Be explicit about discovery** — If work requires finding all instances of X, state it clearly in both objective and outcomes. Ralph has gotten stuck when discovery wasn't explicit. Write "Discover and fix all hardcoded paths" not "Fix hardcoded paths" or "Fix paths at lines 10, 25, 40"
 
 ## Example: Bad vs Good
 
 **Bad (context-limited thinking):**
 ```markdown
 ## Objective
-Create the web_fetch_t struct.
+Create the config struct.
 
 ## Reference
-plan/web-fetch.md section 2.1
+docs/config.md section 2.1
 
 ## Outcomes
-- Struct defined in src/web_fetch.h
+- Struct defined in src/config.h
 ```
 
 Problems: Artificially small, minimal reference, no acceptance criteria.
@@ -65,24 +57,23 @@ Problems: Artificially small, minimal reference, no acceptance criteria.
 **Good (leverages unlimited context):**
 ```markdown
 ## Objective
-Implement web-fetch tool with HTML-to-markdown conversion per project/plan/web-fetch.md.
+Implement configuration loading with environment variable overrides per docs/config.md.
 
 ## Reference
-- project/plan/web-fetch.md - Interface and behavior spec
-- project/plan/tool-integration.md - Registry integration
-- project/research/html-to-markdown.md - Library rationale
-- src/tool_registry.c - Registration pattern
-- tests/unit/tool_bash/ - Test structure
+- docs/config.md — Format spec and defaults
+- docs/environment.md — Env var override behavior
+- src/main.c — Entry point where config is loaded
+- tests/unit/config/ — Existing test structure
 
 ## Outcomes
-- web_fetch tool implemented per project/plan/web-fetch.md
-- HTML-to-markdown conversion working
-- Integrated with tool registry
-- Unit tests in tests/unit/web_fetch/ pass
+- Config loading implemented per docs/config.md
+- Environment variable overrides working
+- Default values applied when env vars absent
+- Unit tests in tests/unit/config/ pass
 
 ## Acceptance
-- All quality checks pass
-- Manual: `./ikigai` → `/web-fetch https://example.com` returns markdown
+- All tests pass
+- CONFIG_DIR=/tmp/test ./app starts with correct config path
 ```
 
 Why better: Complete objective, comprehensive references, measurable outcomes, clear acceptance.
@@ -90,30 +81,30 @@ Why better: Complete objective, comprehensive references, measurable outcomes, c
 **Discovery example:**
 ```markdown
 ## Objective
-Discover all hardcoded ~/.config/ikigai path references in tests/ directory and update them to use IKIGAI_CONFIG_DIR environment variable.
+Discover all hardcoded /usr/local/etc path references in src/ and update them to use CONFIG_DIR environment variable.
 
 ## Reference
-- tests/test_utils.c:692-730 - test_paths_setup_env() sets IKIGAI_CONFIG_DIR
-- .envrc:3 - Shows IKIGAI_CONFIG_DIR=$PWD/etc/ikigai
+- src/paths.c — Central path resolution
+- .envrc — Shows CONFIG_DIR=$PWD/etc
 
 ## Outcomes
-- All hardcoded ~/.config/ikigai references in tests/ discovered via grep
-- All discovered test files updated to use getenv("IKIGAI_CONFIG_DIR")
-- No hardcoded ~/.config/ikigai paths remain in tests directory
+- All hardcoded /usr/local/etc references in src/ discovered via grep
+- All discovered files updated to use getenv("CONFIG_DIR")
+- No hardcoded /usr/local/etc paths remain in src/
 
 ## Acceptance
-- All quality checks pass
-- grep -r "\.config/ikigai" tests/ returns no hardcoded paths
+- All tests pass
+- grep -r "/usr/local/etc" src/ returns no hardcoded paths
 ```
 
 Why explicit discovery matters: Objective starts with "Discover", first outcome confirms discovery happened. Ralph won't skip the grep step.
 
 ## Anti-Patterns
 
-- **Step-by-step instructions** - "First do X, then Y" (Ralph discovers path)
-- **Minimal references** - "Save context" (Ralph iterates, include all relevant)
-- **Vague outcomes** - "Feature implemented" (Be specific and measurable)
-- **Tiny goals** - Breaking cohesive work into artificial steps
-- **Pre-discovered work** - Listing specific file:line locations to fix (Ralph should discover)
+- **Step-by-step instructions** — "First do X, then Y" (Ralph discovers path)
+- **Minimal references** — "Save context" (Ralph iterates, include all relevant)
+- **Vague outcomes** — "Feature implemented" (Be specific and measurable)
+- **Tiny goals** — Breaking cohesive work into artificial steps
+- **Pre-discovered work** — Listing specific file:line locations to fix (Ralph should discover)
 
 **Do this:** Comprehensive objective, all references, measurable outcomes, trust Ralph to iterate and discover.

@@ -65,7 +65,9 @@ ralph-runs/
 │   ├── goal-comment → ../scripts/goal-comment/run
 │   ├── goal-comments → ../scripts/goal-comments/run
 │   ├── goal-spot-check → ../scripts/goal-spot-check/run
-│   └── notify → ../scripts/notify/run
+│   ├── goal-cancel → ../scripts/goal-cancel/run
+│   ├── notify → ../scripts/notify/run
+│   └── reset-repo → ../.claude/scripts/reset-repo
 ├── scripts/                      # All executable scripts (Ruby)
 │   ├── ralph-runs/run            # The orchestrator (~590 lines)
 │   ├── ralph/                    # The agent loop
@@ -75,6 +77,7 @@ ralph-runs/
 │   │   ├── ralph.ascii           # ASCII art startup banner
 │   │   └── COPYING.md            # Instructions for copying ralph to other projects
 │   ├── goal-*/run                # Goal state management scripts
+│   ├── goal-cancel/run           # Cancel a non-terminal goal
 │   └── notify/run                # ntfy.sh push notification sender
 ├── .claude/
 │   ├── library/                  # Skill documents (loaded via /load)
@@ -153,12 +156,14 @@ This is the inner loop. It executes a single goal by iterating Claude invocation
 
 ```
 draft ──→ queued ──→ running ──→ done
-                        │
-                        ├──→ reviewing ──→ done (via spot-check approve)
-                        │         │
-                        │         └──→ queued (via spot-check reject)
-                        │
-                        └──→ stuck ──→ queued (via retry)
+  │         │          │
+  │         │          ├──→ reviewing ──→ done (via spot-check approve)
+  │         │          │         │
+  │         │          │         └──→ queued (via spot-check reject)
+  │         │          │
+  │         │          └──→ stuck ──→ queued (via retry)
+  │         │
+  └─────────┴──→ cancelled (via goal-cancel, any non-terminal state)
 ```
 
 ## Goal Management Scripts
@@ -178,6 +183,7 @@ All scripts interact with the ralph-plans API over HTTP. All return JSON with `{
 | `goal-comment` | `<id> < comment.txt` | Append comment (body via stdin) |
 | `goal-comments` | `<id>` | List comments with timestamps |
 | `goal-spot-check` | `<id> set\|approve\|reject [--feedback "..."]` | Review workflow management |
+| `goal-cancel` | `<id>` | Cancel a non-terminal goal |
 | `notify` | `< {"title":"...","message":"..."}` | Send push notification via ntfy.sh |
 
 ## Goal File Format
