@@ -23,9 +23,11 @@ require 'optparse'
 require 'fileutils'
 require 'set'
 require 'open3'
+require 'erb'
 
 SCRIPT_DIR = File.dirname(File.realpath(__FILE__))
 PROJECT_ROOT = File.expand_path('../..', SCRIPT_DIR)
+PR_DESCRIPTION_TEMPLATE = File.join(SCRIPT_DIR, 'pr-description.md.erb')
 RALPH_DIR = ENV['RALPH_DIR'] || File.join(ENV['HOME'], '.local', 'state', 'ralph')
 CLONE_DIR = File.join(RALPH_DIR, 'clones')
 LOG_DIR = File.join(RALPH_DIR, 'logs')
@@ -138,6 +140,40 @@ def delete_clone(org, repo, goal_id)
   FileUtils.rm_rf(dest) if Dir.exist?(dest)
 end
 
+def generate_pr_description(clone_dir)
+  goal_file = File.join(clone_dir, '.pipeline', 'cache', 'goal.md')
+  progress_file = File.join(clone_dir, '.pipeline', 'cache', 'goal-progress.jsonl')
+
+  # Read goal body
+  return nil unless File.exist?(goal_file)
+  goal = File.read(goal_file)
+
+  # Read progress entries
+  progress_entries = []
+  if File.exist?(progress_file)
+    File.readlines(progress_file).each do |line|
+      entry = JSON.parse(line.strip)
+      progress_entries << entry['progress'] if entry['progress']
+    end
+  end
+
+  # Render ERB template
+  template = ERB.new(File.read(PR_DESCRIPTION_TEMPLATE))
+  prompt = template.result(binding)
+
+  # Invoke Claude with Haiku model
+  schema = JSON.generate({ description: 'string' })
+  cmd = ['claude', '-p', '--model', 'haiku', '--json-schema', schema]
+
+  stdout, stderr, status = Open3.capture3(*cmd, stdin_data: prompt)
+  return nil unless status.exitstatus == 0
+
+  result = JSON.parse(stdout)
+  result['description']
+rescue StandardError
+  nil
+end
+
 def create_pr_from_clone(goal_id, title, clone_dir, nwo)
   branch = "goal-#{goal_id}"
 
@@ -167,7 +203,13 @@ def create_pr_from_clone(goal_id, title, clone_dir, nwo)
   end
 
   # Create PR
-  body = "Goal ##{goal_id}"
+  generated_desc = generate_pr_description(clone_dir)
+  if generated_desc && !generated_desc.empty?
+    body = "#{generated_desc}\n\nGoal ##{goal_id}"
+  else
+    body = "Goal ##{goal_id}"
+  end
+
   pr_output = IO.popen(
     ['gh', 'pr', 'create', '--repo', nwo, '--title', title, '--body', body, '--head', branch],
     chdir: clone_dir, err: '/dev/null', &:read
