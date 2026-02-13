@@ -170,16 +170,21 @@ def generate_pr_description(clone_dir)
     },
     required: ['description']
   })
-  cmd = ['claude', '-p', '--model', 'haiku', '--json-schema', schema]
 
-  stdout, stderr, status = Timeout.timeout(60) do
-    Open3.capture3({'ANTHROPIC_API_KEY' => ''}, *cmd, stdin_data: prompt)
+  cmd = "ANTHROPIC_API_KEY= claude -p --model haiku --output-format json --json-schema '#{schema}'"
+
+  stdout = Timeout.timeout(60) do
+    IO.popen(cmd, 'r+') do |io|
+      io.write(prompt)
+      io.close_write
+      io.read
+    end
   end
-  return nil unless status.exitstatus == 0
 
   result = JSON.parse(stdout)
   result['description']
-rescue StandardError
+rescue StandardError => e
+  log "PR description generation failed: #{e.class}: #{e.message}"
   nil
 end
 
