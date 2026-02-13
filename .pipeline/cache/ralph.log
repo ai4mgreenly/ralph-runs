@@ -60,3 +60,25 @@ The `generate_pr_description` function now invokes `claude -p` with an empty `AN
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 17
+  Tool Uses: 6
+
+  Tokens:
+    Input: 127
+    Output: 36
+    Cache Read: 238,293
+    Cache Create: 28,268
+    Total: 266,724
+
+  Cost: $0.1784
+
+  Time:
+    LLM: 35s
+    Tools: 1s
+    Other: 2s
+    Total: 40s
+══════════════════════════════════════════════════════════════════════
+
