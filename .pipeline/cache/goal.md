@@ -1,18 +1,33 @@
 ## Objective
 
-The `generate_pr_description` function invokes `claude -p` without clearing `ANTHROPIC_API_KEY`, which is inconsistent with how claude is invoked everywhere else in the codebase. Add `ANTHROPIC_API_KEY=` (empty) to the environment so it uses the system credential.
+Rewrite the claude invocation in `generate_pr_description` to match the working pattern used in `scripts/ralph/run`'s `invoke_claude` method. The current implementation uses `Open3.capture3` with an array command, which doesn't work. The existing codebase uses a shell command string with `IO.popen`.
 
 ## Reference
 
-- `scripts/ralph-runs/run` — `generate_pr_description` method, the `Open3.capture3` call (around line 173)
-- `scripts/ralph/run` line 462-463 — the existing pattern: `ANTHROPIC_API_KEY= claude -p --model ...`
+- `scripts/ralph-runs/run` — `generate_pr_description` method (around line 164-182), the broken invocation
+- `scripts/ralph/run` lines 461-470 — the working pattern:
+  ```ruby
+  cmd = "ANTHROPIC_API_KEY= claude -p --model #{model} --output-format json --json-schema '#{schema}'"
+  IO.popen(cmd, 'r+') do |io|
+    io.write(prompt)
+    io.close_write
+    io.read
+  end
+  ```
 
 ## Outcomes
 
-- The `Open3.capture3` call in `generate_pr_description` passes `ANTHROPIC_API_KEY` as empty string in the environment, matching the pattern used in `scripts/ralph/run`
-- For `Open3.capture3`, this means passing an env hash as the first argument: `Open3.capture3({'ANTHROPIC_API_KEY' => ''}, *cmd, stdin_data: prompt)`
+- The claude invocation in `generate_pr_description` uses a shell command string (not an array) with `IO.popen`, matching the pattern in `scripts/ralph/run`
+- The command string includes `ANTHROPIC_API_KEY=` prefix (clearing the env var)
+- Uses `--output-format json` for simple one-shot structured output
+- Sends the rendered prompt via stdin using `IO.popen` in `r+` mode (write prompt, close_write, read response)
+- Keeps the `Timeout.timeout(60)` wrapper around the IO.popen call
+- Keeps the `rescue StandardError` fallback but adds logging: `log "PR description generation failed: #{e.class}: #{e.message}"`
+- Parses the JSON response and extracts the `description` field (or `result` field, whatever claude returns)
 
 ## Acceptance
 
 - `ruby -c scripts/ralph-runs/run` passes
-- The capture3 call includes `{'ANTHROPIC_API_KEY' => ''}` as the env argument
+- The invocation uses a shell command string with `IO.popen`, not `Open3.capture3`
+- `ANTHROPIC_API_KEY=` is part of the command string prefix
+- The rescue clause logs the error before returning nil

@@ -50,3 +50,25 @@ Now I'll verify the syntax is correct. (+2s / 30s) [8.8%]
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 15
+  Tool Uses: 6
+
+  Tokens:
+    Input: 113
+    Output: 59
+    Cache Read: 217,917
+    Cache Create: 33,304
+    Total: 251,393
+
+  Cost: $0.1915
+
+  Time:
+    LLM: 45s
+    Tools: 1s
+    Other: 2s
+    Total: 50s
+══════════════════════════════════════════════════════════════════════
+
