@@ -151,3 +151,25 @@ Let me commit these changes. (+6s / 1m 18s) [15.7%]
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 41
+  Tool Uses: 28
+
+  Tokens:
+    Input: 299
+    Output: 57
+    Cache Read: 1,005,211
+    Cache Create: 104,027
+    Total: 1,109,594
+
+  Cost: $0.6934
+
+  Time:
+    LLM: 1m 37s
+    Tools: 9s
+    Other: 2s
+    Total: 1m 49s
+══════════════════════════════════════════════════════════════════════
+
