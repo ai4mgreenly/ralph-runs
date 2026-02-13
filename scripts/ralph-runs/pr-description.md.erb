@@ -1,0 +1,41 @@
+You are generating a pull request description for code review.
+
+## Goal
+
+<%= goal %>
+
+## Progress History
+<% progress_entries.each_with_index do |entry, idx| %>
+
+### Iteration <%= idx + 1 %>
+<%= entry %>
+<% end %>
+
+## Task
+
+Write a concise PR description that tells a reviewer what this PR delivers and why. Describe the **FINAL RESULT** — what the code does now — not a history of how you got there.
+
+## Format
+
+- **Summary**: 2-3 sentences describing what the PR adds/changes and why
+- **Key changes**: Short bullet list (3-5 items) of the main technical changes
+- **No boilerplate**: No empty sections, no "N/A", no headers like "## Summary" or "## Changes"
+- **Developer voice**: Write as if you're describing your own PR to a reviewer
+
+## Example
+
+Good description:
+
+```
+Adds AI-generated PR descriptions to the orchestrator. Instead of bare
+"Goal #N" bodies, PRs now get a Haiku-generated summary describing what
+the PR delivers and why, based on the goal and iteration progress.
+
+- New ERB template for PR description prompt
+- `generate_pr_description` function reads goal + progress, calls Haiku
+- `create_pr_from_clone` uses generated body with fallback to "Goal #N"
+```
+
+## Output
+
+Return only the PR description text. Do not include markdown code fences or any wrapper formatting.
