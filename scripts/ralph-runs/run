@@ -175,7 +175,7 @@ rescue StandardError
 end
 
 def create_pr_from_clone(goal_id, title, clone_dir, nwo)
-  branch = "goal-#{goal_id}"
+  branch = "goal-#{goal_id}-#{Time.now.to_i.to_s(36)}"
 
   # Commit any uncommitted working copy changes
   system('jj', 'commit', '-m', "Goal ##{goal_id}: #{title}",
