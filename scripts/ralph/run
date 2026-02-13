@@ -324,9 +324,7 @@ class Ralph
       summary_end: summary_end,
       summary: summary_content,
       recent: recent,
-      agents_md: load_agents_md,
-      skills: load_skills,
-      advertised_skills: build_advertised_skills
+      agents_md: load_agents_md
     })
   end
 
@@ -420,39 +418,14 @@ class Ralph
   end
 
   def load_agents_md
-    return nil unless File.exist?('AGENTS.md')
+    return File.read('AGENTS.md') if File.exist?('AGENTS.md')
 
-    File.read('AGENTS.md')
+    # Fallback when AGENTS.md does not exist
+    <<~FALLBACK
+      No AGENTS.md found. Before starting work on the goal, explore this repository to understand: what the project does, what language and frameworks it uses, how to build and test it, and any conventions visible in the existing code. Use this understanding to guide your approach.
+    FALLBACK
   end
 
-  def load_skills
-    skillset = JSON.parse(File.read('.claude/skillsets/ralph.json'))
-
-    skillset['preload'].map do |skill_name|
-      skill_file = ".claude/library/#{skill_name}/SKILL.md"
-      content = File.read(skill_file)
-      "## #{skill_name}\n\n#{content}"
-    end.join("\n\n")
-  end
-
-  def build_advertised_skills
-    skillset = JSON.parse(File.read('.claude/skillsets/ralph.json'))
-
-    (skillset['advertise'] || []).map do |entry|
-      skill_name = entry.is_a?(Hash) ? entry['skill'] : entry
-      desc = entry.is_a?(Hash) ? entry['description'] : nil
-
-      unless desc
-        skill_file = ".claude/library/#{skill_name}/SKILL.md"
-        next unless File.exist?(skill_file)
-
-        content = File.read(skill_file)
-        desc = $1.strip if content =~ /^description:\s*(.+)$/
-      end
-
-      "| `#{skill_name}` | #{desc} |" if desc
-    end.compact.join("\n")
-  end
 
   # ─────────────────────────────────────────────────────────────
   # Claude Invocation
