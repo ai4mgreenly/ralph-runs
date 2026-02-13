@@ -70,3 +70,25 @@ The symlink uses a relative path (`AGENTS.md`) and points correctly. CLAUDE.md n
 
 
 ✓ DONE
+
+══════════════════════════════════════════════════════════════════════
+  Iterations: 2
+  Assistant Messages: 18
+  Tool Uses: 9
+
+  Tokens:
+    Input: 136
+    Output: 37
+    Cache Read: 204,017
+    Cache Create: 79,222
+    Total: 283,412
+
+  Cost: $0.3593
+
+  Time:
+    LLM: 27s
+    Tools: 2s
+    Other: 2s
+    Total: 33s
+══════════════════════════════════════════════════════════════════════
+
