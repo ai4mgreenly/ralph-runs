@@ -173,7 +173,7 @@ def generate_pr_description(clone_dir)
   cmd = ['claude', '-p', '--model', 'haiku', '--json-schema', schema]
 
   stdout, stderr, status = Timeout.timeout(60) do
-    Open3.capture3(*cmd, stdin_data: prompt)
+    Open3.capture3({'ANTHROPIC_API_KEY' => ''}, *cmd, stdin_data: prompt)
   end
   return nil unless status.exitstatus == 0
 

@@ -1,20 +1,18 @@
 ## Objective
 
-Fix the `generate_pr_description` function in the orchestrator which blocks the main loop and uses an invalid JSON Schema, causing ralph-runs to hang after a ralph completes.
+The `generate_pr_description` function invokes `claude -p` without clearing `ANTHROPIC_API_KEY`, which is inconsistent with how claude is invoked everywhere else in the codebase. Add `ANTHROPIC_API_KEY=` (empty) to the environment so it uses the system credential.
 
 ## Reference
 
-- `scripts/ralph-runs/run` — `generate_pr_description` method (around line 143-175)
-- The `claude` CLI accepts `--json-schema` with a valid JSON Schema object
+- `scripts/ralph-runs/run` — `generate_pr_description` method, the `Open3.capture3` call (around line 173)
+- `scripts/ralph/run` line 462-463 — the existing pattern: `ANTHROPIC_API_KEY= claude -p --model ...`
 
 ## Outcomes
 
-- The JSON Schema passed to `--json-schema` is a valid JSON Schema: `{"type":"object","properties":{"description":{"type":"string"}},"required":["description"]}`
-- The `Open3.capture3` call has a timeout so it cannot block the orchestrator indefinitely. Use a simple approach: spawn the process, use `Timeout.timeout(60)` around the capture3 call (60 seconds is generous for a Haiku call). The existing `rescue StandardError` will catch `Timeout::Error` since it inherits from `RuntimeError`.
-- The fallback behavior is preserved — if generation fails for any reason (timeout, bad output, exit code), return nil and the PR body falls back to `"Goal ##{goal_id}"`
+- The `Open3.capture3` call in `generate_pr_description` passes `ANTHROPIC_API_KEY` as empty string in the environment, matching the pattern used in `scripts/ralph/run`
+- For `Open3.capture3`, this means passing an env hash as the first argument: `Open3.capture3({'ANTHROPIC_API_KEY' => ''}, *cmd, stdin_data: prompt)`
 
 ## Acceptance
 
 - `ruby -c scripts/ralph-runs/run` passes
-- The JSON schema string is a valid JSON Schema with type, properties, and required fields
-- The capture3 call is wrapped in a timeout
+- The capture3 call includes `{'ANTHROPIC_API_KEY' => ''}` as the env argument
