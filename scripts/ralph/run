@@ -530,8 +530,6 @@ class Ralph
           tool_names[tool_use['id']] = tool_use['name']
           output_tool_use(tool_use, iteration_start)
         end
-        # Track tokens from usage
-        track_usage(event, model) if iteration_start
       when 'user'
         counters[:tool_time] += (Time.now - last_event_time)
         last_event_time = Time.now
@@ -542,6 +540,8 @@ class Ralph
         end
       when 'result'
         result = event
+        # Track tokens from result event
+        track_usage(event, model) if iteration_start
         break
       else
         # Unknown message type - output in subdued style
@@ -596,7 +596,8 @@ class Ralph
   end
 
   def track_usage(event, model)
-    usage = event.dig('message', 'usage')
+    # Read from result event's usage (session totals)
+    usage = event['usage']
     return unless usage
 
     input = usage['input_tokens'] || 0
@@ -609,7 +610,7 @@ class Ralph
     @total_tokens[:cache_read] += cache_read
     @total_tokens[:cache_create] += cache_create
 
-    # Calculate cost
+    # Calculate cost from usage data
     pricing = MODEL_PRICING[model]
     return unless pricing
 
