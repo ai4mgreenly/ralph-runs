@@ -521,9 +521,8 @@ class Ralph
         counters[:llm_time] += (Time.now - last_event_time)
         last_event_time = Time.now
         counters[:assistant_messages] += 1
-        context_pct = extract_context_percentage(event)
         text = extract_text_content(event)
-        output_message(text, iteration_start, context_pct) unless text.empty?
+        output_message(text, iteration_start) unless text.empty?
         tool_use_list = extract_tool_uses(event)
         counters[:tool_uses] += tool_use_list.length
         tool_use_list.each do |tool_use|
@@ -622,23 +621,19 @@ class Ralph
     @total_cost += cost
   end
 
-  def format_timing_suffix(context_pct = nil)
+  def format_timing_suffix
     now = Time.now
     delta = format_elapsed((now - @last_output_time).to_i)
     total = format_elapsed((now - @start_time).to_i)
     @last_output_time = now
 
-    if context_pct
-      "(+#{delta} / #{total}) [#{context_pct}%]"
-    else
-      "(+#{delta} / #{total})"
-    end
+    "(+#{delta} / #{total})"
   end
 
-  def output_message(text, iteration_start, context_pct = nil)
+  def output_message(text, iteration_start)
     reset_waiting_timer
     maybe_ralph_says
-    suffix = "\e[90m#{format_timing_suffix(context_pct)}\e[0m"
+    suffix = "\e[90m#{format_timing_suffix}\e[0m"
     lines = text.lines
     if lines.empty?
       emit_line suffix
@@ -699,20 +694,6 @@ class Ralph
   def extract_tool_results(event)
     content = event.dig('message', 'content') || []
     content.select { |b| b['type'] == 'tool_result' }
-  end
-
-  def extract_context_percentage(event)
-    usage = event.dig('message', 'usage')
-    return nil unless usage
-
-    input = usage['input_tokens'] || 0
-    cache_create = usage['cache_creation_input_tokens'] || 0
-    cache_read = usage['cache_read_input_tokens'] || 0
-    total_context = input + cache_create + cache_read
-
-    return nil if total_context.zero?
-
-    ((total_context.to_f / 200_000) * 100).round(1)
   end
 
   def with_temp_file(content)
