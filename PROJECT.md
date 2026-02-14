@@ -43,7 +43,7 @@ ralph iterates: prompt Claude → execute tools → record progress → jj commi
         ↓
 ralph exits 0 (success) or non-zero (failure)
         ↓
-Success: create PR → auto-merge (or label for review) → goal-done
+Success: create PR → auto-merge → goal-done
 Failure: post comment → goal-stuck → goal-retry (up to 3 retries)
 ```
 
@@ -64,7 +64,6 @@ ralph-runs/
 │   ├── goal-retry → ../scripts/goal-retry/run
 │   ├── goal-comment → ../scripts/goal-comment/run
 │   ├── goal-comments → ../scripts/goal-comments/run
-│   ├── goal-spot-check → ../scripts/goal-spot-check/run
 │   ├── goal-cancel → ../scripts/goal-cancel/run
 │   ├── notify → ../scripts/notify/run
 │   └── reset-repo → ../.claude/scripts/reset-repo
@@ -108,10 +107,9 @@ This is the outer loop. It manages concurrency, goal lifecycle, cloning, PR crea
 1. **Check for shutdown** (Ctrl+C) — gracefully kills running ralphs, requeues their goals
 2. **Collect finished ralphs** — checks PIDs for completed processes
 3. **Handle results:**
-   - Exit 0: commit remaining changes, create jj bookmark `goal-<id>`, push, create PR via `gh`, auto-merge (or label `goal:review` for review goals)
+   - Exit 0: commit remaining changes, create jj bookmark `goal-<id>`, push, create PR via `gh`, auto-merge
    - Exit non-zero: post failure comment to goal, mark stuck, requeue (up to 3 retries), notify on exhaustion
-4. **Clean up review clones** — delete clones for goals no longer in "reviewing" state
-5. **Fill open slots** — fetch queued goals across all repos, prioritize untried over retried (fairness), clone repo, write goal body, spawn ralph
+4. **Fill open slots** — fetch queued goals across all repos, prioritize untried over retried (fairness), clone repo, write goal body, spawn ralph
 
 **Key design decisions:**
 - `goal-start` is atomic/race-safe — if two orchestrators try to claim the same goal, only one succeeds
@@ -157,10 +155,6 @@ This is the inner loop. It executes a single goal by iterating Claude invocation
 ```
 draft ──→ queued ──→ running ──→ done
   │         │          │
-  │         │          ├──→ reviewing ──→ done (via spot-check approve)
-  │         │          │         │
-  │         │          │         └──→ queued (via spot-check reject)
-  │         │          │
   │         │          └──→ stuck ──→ queued (via retry)
   │         │
   └─────────┴──→ cancelled (via goal-cancel, any non-terminal state)
@@ -172,9 +166,9 @@ All scripts interact with the ralph-plans API over HTTP. All return JSON with `{
 
 | Script | Usage | Purpose |
 |--------|-------|---------|
-| `goal-create` | `--title "..." --org ORG --repo REPO [--review] < body.md` | Create goal (draft). Body via stdin. |
+| `goal-create` | `--title "..." --org ORG --repo REPO < body.md` | Create goal (draft). Body via stdin. |
 | `goal-list` | `[--status STATUS] [--org ORG] [--repo REPO]` | List goals, optionally filtered |
-| `goal-get` | `<id>` | Fetch full goal (id, org, repo, title, body, status, review, timestamps) |
+| `goal-get` | `<id>` | Fetch full goal (id, org, repo, title, body, status, timestamps) |
 | `goal-queue` | `<id>` | draft → queued |
 | `goal-start` | `<id>` | queued → running (atomic, fails if already claimed) |
 | `goal-done` | `<id>` | running → done |
@@ -182,7 +176,6 @@ All scripts interact with the ralph-plans API over HTTP. All return JSON with `{
 | `goal-retry` | `<id>` | stuck → queued |
 | `goal-comment` | `<id> < comment.txt` | Append comment (body via stdin) |
 | `goal-comments` | `<id>` | List comments with timestamps |
-| `goal-spot-check` | `<id> set\|approve\|reject [--feedback "..."]` | Review workflow management |
 | `goal-cancel` | `<id>` | Cancel a non-terminal goal |
 | `notify` | `< {"title":"...","message":"..."}` | Send push notification via ntfy.sh |
 

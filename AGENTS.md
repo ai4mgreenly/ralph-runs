@@ -1,6 +1,6 @@
 # ralph-runs
 
-Autonomous software development pipeline orchestrator. Polls for queued goals from the ralph-plans API, spawns AI agents ("ralphs") to execute them in isolated repository clones, and creates pull requests from the results. Handles concurrency, retries (up to 3 attempts with failure context), and review workflows.
+Autonomous software development pipeline orchestrator. Polls for queued goals from the ralph-plans API, spawns AI agents ("ralphs") to execute them in isolated repository clones, and creates pull requests from the results. Handles concurrency and retries (up to 3 attempts with failure context).
 
 Philosophy: deliberately minimalist. Small, focused Ruby scripts coordinating through a REST API and the filesystem.
 
@@ -42,7 +42,6 @@ Failures: comment posted → goal-stuck → goal-retry (up to 3 attempts).
 
 ```
 draft → queued → running → done
-                    ├→ reviewing → done (approve) or queued (reject)
                     └→ stuck → queued (retry, up to 3x)
 Any non-terminal state → cancelled (via goal-cancel)
 ```
