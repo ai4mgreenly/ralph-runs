@@ -32,6 +32,10 @@ The following is the project's AGENTS.md. If it contains a "For Ralph" section, 
 
 **You are running in an isolated clone.** Only read and modify files within your current working directory. Never use absolute paths that escape to parent directories. If you see paths like `/home/.../projects/...` that point outside your clone, you are escaping your sandbox - use relative paths instead.
 
+## Bash Execution
+
+**All bash commands must run in the foreground.** Never use background execution — no `run_in_background`, no trailing `&`, no `nohup`. Background bash processes in Claude Code have a known bug where exit markers are never written, which hangs the entire process and causes the iteration to fail. Always wait for each command to complete before proceeding.
+
 ## Steps
 A step involves: understand → act → verify. Complete the cycle before returning.
 
