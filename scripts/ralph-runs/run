@@ -7,7 +7,7 @@
 # Usage: ralph-runs --max N [--model MODEL] [--reasoning LEVEL] [--duration DURATION]
 #
 # Picks up queued goals, spawns ralphs in isolated clones, collects results,
-# creates PRs on success, retries on failure, and notifies on review.
+# creates PRs on success, retries on failure.
 #
 # Arguments:
 #   --max N            Maximum concurrent ralphs (required)
@@ -45,7 +45,6 @@ GOAL_STUCK_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-stuck', 'run')
 GOAL_COMMENT_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-comment', 'run')
 GOAL_COMMENTS_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-comments', 'run')
 GOAL_RETRY_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-retry', 'run')
-GOAL_SPOT_CHECK_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-spot-check', 'run')
 MAX_RETRIES = 3
 
 def init_log
@@ -274,7 +273,7 @@ def main(options)
   log "Model: #{model} | Reasoning: #{reasoning} | Duration: #{duration || 'unlimited'}"
 
   # State tracking
-  running = {}                # pid => {goal_id:, title:, review:, dir:, started_at:, stream_thread:, wait_thread:, repo:}
+  running = {}                # pid => {goal_id:, title:, dir:, started_at:, stream_thread:, wait_thread:, repo:}
   retries = Hash.new(0)       # goal_id => retry count
   attempted = Set.new         # goal_id
   completed_count = 0
@@ -344,30 +343,20 @@ def main(options)
           log "#{gl} PR created → ##{pr_num}"
         end
 
-        if info[:review]
-          # Review goal — transition to reviewing, label PR, keep clone
-          run_script(GOAL_SPOT_CHECK_SCRIPT, goal_id.to_s, 'set')
-          if pr_num
-            add_pr_label(pr_num, 'goal:review', nwo)
-            log "#{gl} PR ##{pr_num} labeled goal:review"
+        # Mark done, auto-merge, delete clone
+        run_script(GOAL_DONE_SCRIPT, goal_id.to_s)
+        if pr_num
+          merge_cmd = ['gh', 'pr', 'merge', '--repo', nwo, '--auto', '--squash', pr_num.to_s]
+          if system(*merge_cmd, out: '/dev/null', err: '/dev/null')
+            log "#{gl} auto-merge enabled on PR ##{pr_num}"
+          else
+            log "#{gl} auto-merge failed on PR ##{pr_num} (non-fatal)"
           end
-          log "#{gl} → reviewing"
-        else
-          # Non-review goal — mark done, auto-merge, delete clone
-          run_script(GOAL_DONE_SCRIPT, goal_id.to_s)
-          if pr_num
-            merge_cmd = ['gh', 'pr', 'merge', '--repo', nwo, '--auto', '--squash', pr_num.to_s]
-            if system(*merge_cmd, out: '/dev/null', err: '/dev/null')
-              log "#{gl} auto-merge enabled on PR ##{pr_num}"
-            else
-              log "#{gl} auto-merge failed on PR ##{pr_num} (non-fatal)"
-            end
-          end
-          completed_count += 1
-          log "#{gl} → done"
-          delete_clone(org, repo_name, goal_id)
-          delete_goal_dir(goal_id)
         end
+        completed_count += 1
+        log "#{gl} → done"
+        delete_clone(org, repo_name, goal_id)
+        delete_goal_dir(goal_id)
       else
         log "#{gl} ralph finished (exit #{status.exitstatus}, #{elapsed})"
         retries[goal_id] += 1
@@ -387,30 +376,6 @@ def main(options)
           delete_clone(org, repo_name, goal_id)
           delete_goal_dir(goal_id)
         end
-      end
-    end
-
-    # ── Clean up review clones ──
-    # Traverse clones/<org>/<repo>/<goal_id>/ structure
-    Dir.glob(File.join(CLONE_DIR, '*', '*', '*')).each do |clone_path|
-      next unless File.directory?(clone_path)
-
-      goal_id = File.basename(clone_path).to_i
-      next if goal_id == 0  # Skip non-numeric directories
-
-      # Don't delete clones for currently running goals
-      next if running.values.any? { |info| info[:goal_id] == goal_id }
-
-      # Check if goal is no longer in reviewing state
-      goal_data = run_script(GOAL_GET_SCRIPT, goal_id.to_s)
-      next unless goal_data && goal_data['ok']
-
-      unless goal_data['status'] == 'reviewing'
-        parts = clone_path.sub("#{CLONE_DIR}/", '').split('/')
-        clone_org = parts[0]
-        clone_repo = parts[1]
-        delete_clone(clone_org, clone_repo, goal_id)
-        log "Cleaned up clones/#{clone_org}/#{clone_repo}/#{goal_id}/ (goal no longer in reviewing)"
       end
     end
 
@@ -456,7 +421,6 @@ def main(options)
         repo_name = ri[:repo]
         goal_id = goal['id']
         title = goal['title']
-        review = goal['review']
         gl = goal_label(goal_id, ri)
 
         # Transition to running (race-safe: skip on failure)
@@ -540,7 +504,6 @@ def main(options)
         running[pid] = {
           goal_id: goal_id,
           title: title,
-          review: review,
           dir: clone_dir,
           started_at: Time.now,
           stream_thread: stream_thread,
