@@ -76,6 +76,10 @@ No automated test suite. Validate changes by:
 
 Configured via `.envrc` (direnv). `PATH` includes `bin/` for direct script access. Services communicate via `RALPH_*_HOST/PORT` env vars. Optional: `NTFY_TOPIC`, `NTFY_API_KEY` for push notifications.
 
+### Goal Authoring for This Repo
+
+When creating goals targeting this repository, use `--org ai4mgreenly --repo ralph-runs`.
+
 ## Directory Structure
 
 ```
