@@ -4,16 +4,16 @@
 #
 # scripts/ralph-runs/run - Pipeline orchestrator for concurrent goal execution
 #
-# Usage: ralph-runs --max N [--model MODEL] [--reasoning LEVEL] [--duration DURATION]
+# Usage: ralph-runs --max N [--duration DURATION]
 #
 # Picks up queued goals, spawns ralphs in isolated clones, collects results,
 # creates PRs on success, retries on failure.
 #
 # Arguments:
 #   --max N            Maximum concurrent ralphs (required)
-#   --model MODEL      Model for ralphs: haiku, sonnet, opus (default: sonnet)
-#   --reasoning LEVEL  Reasoning level: none, low, med, high (default: med)
 #   --duration DUR     Time budget per ralph (e.g., 4h, 200m)
+#
+# Model and reasoning are read from goal tickets; defaults: sonnet, med
 #
 # Exit code: 0 on clean shutdown, 130 on interrupt
 #
@@ -265,12 +265,10 @@ def main(options)
   init_log
 
   max_slots = options[:max]
-  model = options[:model]
-  reasoning = options[:reasoning]
   duration = options[:duration]
 
   log "Starting orchestrator (max #{max_slots} ralphs)"
-  log "Model: #{model} | Reasoning: #{reasoning} | Duration: #{duration || 'unlimited'}"
+  log "Duration: #{duration || 'unlimited'}"
 
   # State tracking
   running = {}                # pid => {goal_id:, title:, dir:, started_at:, stream_thread:, wait_thread:, repo:}
@@ -464,9 +462,10 @@ def main(options)
         goal_file = File.join(goal_dir, 'goal.md')
         File.write(goal_file, goal_body)
 
-        # Use goal-specific model/reasoning if provided, otherwise use orchestrator defaults
-        goal_model = goal_data['model'] || model
-        goal_reasoning = goal_data['reasoning'] || reasoning
+        # Use goal-specific model/reasoning if provided, otherwise default to sonnet/med
+        goal_model = goal_data['model'] || 'sonnet'
+        goal_reasoning = goal_data['reasoning'] || 'med'
+        log "#{gl} using model: #{goal_model}, reasoning: #{goal_reasoning}"
 
         # Spawn ralph with real-time log streaming
         ralph_log = File.join(goal_dir, 'ralph.log')
@@ -526,28 +525,19 @@ end
 # CLI
 # ─────────────────────────────────────────────────────────────
 
-options = {
-  model: 'sonnet',
-  reasoning: 'med'
-}
+options = {}
 
 OptionParser.new do |opts|
   opts.banner = <<~BANNER
     ralph-runs - Pipeline coordinator for concurrent goal execution
 
     Usage: ralph-runs --max N [options]
+
+    Model and reasoning are read from goal tickets; defaults: sonnet, med
   BANNER
 
   opts.on('--max=N', Integer, 'Maximum concurrent ralphs (required)') do |n|
     options[:max] = n
-  end
-
-  opts.on('--model=MODEL', %w[haiku sonnet opus], 'Model: haiku, sonnet, opus (default: sonnet)') do |m|
-    options[:model] = m
-  end
-
-  opts.on('--reasoning=LEVEL', %w[none low med high], 'Reasoning: none, low, med, high (default: med)') do |r|
-    options[:reasoning] = r
   end
 
   opts.on('--duration=DURATION', 'Time budget per ralph (e.g., 4h, 200m)') do |d|
