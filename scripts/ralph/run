@@ -116,6 +116,7 @@ class Ralph
 
   def run
     set_goal_paths(@goal_file)
+    source_envrc
     validate_files
     copy_goal_file
     initialize_state unless @continue_run
@@ -168,6 +169,23 @@ class Ralph
   # ─────────────────────────────────────────────────────────────
   # Setup & State
   # ─────────────────────────────────────────────────────────────
+
+  def source_envrc
+    return unless File.exist?('.envrc')
+
+    # Use direnv to export environment changes as JSON
+    output = `direnv export json 2>/dev/null`
+    return if output.empty?
+
+    begin
+      env_changes = JSON.parse(output)
+      env_changes.each do |key, value|
+        ENV[key] = value
+      end
+    rescue JSON::ParserError
+      # Silently fail if direnv output is invalid
+    end
+  end
 
   def validate_files
     unless File.exist?(@goal_file)
