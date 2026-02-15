@@ -173,6 +173,9 @@ class Ralph
   def source_envrc
     return unless File.exist?('.envrc')
 
+    # Allow the .envrc file (required for direnv export to work)
+    system('direnv allow . >/dev/null 2>&1')
+
     # Use direnv to export environment changes as JSON
     output = `direnv export json 2>/dev/null`
     return if output.empty?
@@ -180,7 +183,8 @@ class Ralph
     begin
       env_changes = JSON.parse(output)
       env_changes.each do |key, value|
-        ENV[key] = value
+        # Only apply non-null values (direnv returns null for blocked or unset vars)
+        ENV[key] = value if value
       end
     rescue JSON::ParserError
       # Silently fail if direnv output is invalid
