@@ -464,6 +464,10 @@ def main(options)
         goal_file = File.join(goal_dir, 'goal.md')
         File.write(goal_file, goal_body)
 
+        # Use goal-specific model/reasoning if provided, otherwise use orchestrator defaults
+        goal_model = goal_data['model'] || model
+        goal_reasoning = goal_data['reasoning'] || reasoning
+
         # Spawn ralph with real-time log streaming
         ralph_log = File.join(goal_dir, 'ralph.log')
         ralph_args = [
@@ -471,8 +475,8 @@ def main(options)
           "--goal=#{goal_file}",
           '--log-mode',
           '--no-pull-request',
-          "--model=#{model}",
-          "--reasoning=#{reasoning}",
+          "--model=#{goal_model}",
+          "--reasoning=#{goal_reasoning}",
           "--name=#{title}"
         ]
         ralph_args << "--duration=#{duration}" if duration
