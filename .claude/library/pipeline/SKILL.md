@@ -85,6 +85,19 @@ Goal bodies **must** follow the `goal-authoring` skill guidelines (`/load goal-a
 - Never pre-discover work (no specific line numbers or code snippets)
 - Trust Ralph to iterate and discover the path
 
+## Optional: Model and Reasoning
+
+**Do NOT set `model` or `reasoning` unless the user explicitly requests them for a specific goal.**
+
+By default, omit these fields entirely. The orchestrator uses sensible defaults (sonnet, med reasoning). Only specify model or reasoning when the user says something like "use opus for this goal" or "use high reasoning for this task."
+
+**When explicitly requested**, these can be set via the ralph-plans API:
+
+- `model` — haiku, sonnet, or opus
+- `reasoning` — none, low, med, or high
+
+Most goals should not specify these. Let the orchestrator handle it.
+
 ## Key Rules
 
 - **Body via stdin** — `goal-create` reads body from stdin
