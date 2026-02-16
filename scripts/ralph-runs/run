@@ -342,7 +342,9 @@ def main(options)
         end
 
         # Mark done, auto-merge, delete clone
-        run_script(GOAL_DONE_SCRIPT, goal_id.to_s)
+        done_args = [goal_id.to_s]
+        done_args << '--pr' << pr_num.to_s if pr_num
+        run_script(GOAL_DONE_SCRIPT, *done_args)
         if pr_num
           merge_cmd = ['gh', 'pr', 'merge', '--repo', nwo, '--auto', '--squash', pr_num.to_s]
           if system(*merge_cmd, out: '/dev/null', err: '/dev/null')
