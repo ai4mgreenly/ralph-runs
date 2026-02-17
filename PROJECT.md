@@ -43,7 +43,7 @@ ralph iterates: prompt Claude → execute tools → record progress → jj commi
         ↓
 ralph exits 0 (success) or non-zero (failure)
         ↓
-Success: create PR → auto-merge → goal-done
+Success: create PR → auto-merge → goal-submitted
 Failure: post comment → goal-stuck → goal-retry (up to 3 retries)
 ```
 
@@ -59,7 +59,7 @@ ralph-runs/
 │   ├── goal-get → ../scripts/goal-get/run
 │   ├── goal-queue → ../scripts/goal-queue/run
 │   ├── goal-start → ../scripts/goal-start/run
-│   ├── goal-done → ../scripts/goal-done/run
+│   ├── goal-submitted → ../scripts/goal-submitted/run
 │   ├── goal-stuck → ../scripts/goal-stuck/run
 │   ├── goal-retry → ../scripts/goal-retry/run
 │   ├── goal-comment → ../scripts/goal-comment/run
@@ -153,8 +153,8 @@ This is the inner loop. It executes a single goal by iterating Claude invocation
 ## Goal State Machine
 
 ```
-draft ──→ queued ──→ running ──→ done
-  │         │          │
+draft ──→ queued ──→ running ──→ submitted ──→ merged
+  │         │          │                    └──→ rejected
   │         │          └──→ stuck ──→ queued (via retry)
   │         │
   └─────────┴──→ cancelled (via goal-cancel, any non-terminal state)
@@ -171,7 +171,7 @@ All scripts interact with the ralph-plans API over HTTP. All return JSON with `{
 | `goal-get` | `<id>` | Fetch full goal (id, org, repo, title, body, status, timestamps) |
 | `goal-queue` | `<id>` | draft → queued |
 | `goal-start` | `<id>` | queued → running (atomic, fails if already claimed) |
-| `goal-done` | `<id>` | running → done |
+| `goal-submitted` | `<id>` | running → submitted |
 | `goal-stuck` | `<id>` | running → stuck |
 | `goal-retry` | `<id>` | stuck → queued |
 | `goal-comment` | `<id> < comment.txt` | Append comment (body via stdin) |

@@ -2,9 +2,9 @@
 # frozen_string_literal: true
 
 #
-# scripts/goal-done - Transition a goal from running to done
+# scripts/goal-submitted - Transition a goal from running to submitted
 #
-# Usage: goal-done <id>
+# Usage: goal-submitted <id>
 #
 # Output: JSON {"ok": true}
 # Exit code: 0 on success, 1 on failure
@@ -22,9 +22,9 @@ def main
 
   OptionParser.new do |opts|
     opts.banner = <<~HELP
-      Usage: goal-done <id> [--pr N]
+      Usage: goal-submitted <id> [--pr N]
 
-      Transition a pipeline goal from running to done.
+      Transition a pipeline goal from running to submitted.
 
       Arguments:
         id    Goal ID (required)
@@ -33,14 +33,14 @@ def main
         --pr N    PR number to record on the goal (optional)
 
       What it does:
-        Records the PR number (if provided) and transitions the goal from running to done.
+        Records the PR number (if provided) and transitions the goal from running to submitted.
 
       Output:
         JSON {"ok": true}
 
       Examples:
-        goal-done 42
-        goal-done 42 --pr 123
+        goal-submitted 42
+        goal-submitted 42 --pr 123
     HELP
 
     opts.on('--pr N', Integer, 'PR number to record') do |n|
@@ -70,8 +70,8 @@ def main
     end
   end
 
-  # Transition to done
-  uri = URI("http://#{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}/goals/#{id}/done")
+  # Transition to submitted
+  uri = URI("http://#{RALPH_PLANS_HOST}:#{RALPH_PLANS_PORT}/goals/#{id}/submitted")
   req = Net::HTTP::Patch.new(uri)
   resp = Net::HTTP.start(uri.hostname, uri.port) { |http| http.request(req) }
   result = JSON.parse(resp.body)
