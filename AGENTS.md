@@ -22,7 +22,7 @@ This project contains the orchestrator, the agent loop, and all goal management 
 
 ```
 goal-create (draft) → goal-queue (queued) → orchestrator picks up →
-  clone repo → spawn ralph → iterate until done → create PR → goal-done
+  clone repo → spawn ralph → iterate until done → create PR → goal-submitted
 ```
 
 Failures: comment posted → goal-stuck → goal-retry (up to 3 attempts).
@@ -41,7 +41,8 @@ Failures: comment posted → goal-stuck → goal-retry (up to 3 attempts).
 ### Goal State Machine
 
 ```
-draft → queued → running → done
+draft → queued → running → submitted → merged
+                    │                 └→ rejected
                     └→ stuck → queued (retry, up to 3x)
 Any non-terminal state → cancelled (via goal-cancel)
 ```
