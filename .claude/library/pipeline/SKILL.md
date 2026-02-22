@@ -39,7 +39,17 @@ Human writes goal → goal-create (draft) → goal-queue (queued) → Ralph exec
 
 ## Goal Statuses
 
-`draft` → `queued` → `running` → `done` (or `stuck`)
+```
+draft → queued → running → submitted → merged
+  ↓       ↓        ↓           └──────→ rejected
+  └───────────────────────────→ cancelled
+                   └──→ stuck → queued
+                          ↓
+                       cancelled
+```
+
+- `submitted` — PR created (running → submitted via `goal-submit`)
+- `merged` / `rejected` — auto-detected via GitHub PR check (no script needed)
 
 ## Goal Commands
 
