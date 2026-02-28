@@ -248,6 +248,32 @@ def goal_label(goal_id, repo_info)
   "Goal ##{goal_id} (#{repo_info[:nwo]})"
 end
 
+def startup_cleanup
+  # Recover orphaned running goals (left by a previous crash or kill -9)
+  result = run_script(GOAL_LIST_SCRIPT, '--status', 'running')
+  orphaned = (result && result['ok'] && result['items']) || []
+
+  if orphaned.any?
+    log "Startup: found #{orphaned.size} orphaned running goal(s), recovering..."
+    orphaned.each do |goal|
+      goal_id = goal['id']
+      run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
+      run_script(GOAL_RETRY_SCRIPT, goal_id.to_s)
+      log "Startup: Goal ##{goal_id} → re-queued (was running)"
+    end
+  end
+
+  # Remove stale clone directories
+  if Dir.exist?(CLONE_DIR)
+    stale = Dir.children(CLONE_DIR)
+    unless stale.empty?
+      log "Startup: removing #{stale.size} stale entr#{stale.size == 1 ? 'y' : 'ies'} under clones/"
+      FileUtils.rm_rf(Dir.glob(File.join(CLONE_DIR, '*')))
+      log "Startup: clone directory cleaned"
+    end
+  end
+end
+
 def main(options)
   init_log
 
@@ -256,6 +282,8 @@ def main(options)
 
   log "Starting orchestrator (max #{max_slots} ralphs)"
   log "Duration: #{duration || 'unlimited'}"
+
+  startup_cleanup
 
   # State tracking
   running = {}                # pid => {goal_id:, title:, dir:, started_at:, stream_thread:, wait_thread:, repo:}
