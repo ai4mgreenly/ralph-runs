@@ -112,9 +112,6 @@ def clone_repo(remote_url, org, repo, goal_id)
   system('git', 'clone', '--quiet', remote_url, dest, out: '/dev/null', err: '/dev/null')
   return nil unless $?.exitstatus == 0
 
-  # Initialize jj so ralph's commits work inside the clone
-  system('jj', 'git', 'init', chdir: dest, out: '/dev/null', err: '/dev/null')
-
   dest
 end
 
@@ -135,32 +132,30 @@ def merge_to_main(goal_id, title, clone_dir)
     log "Goal ##{goal_id} merge attempt #{attempt + 1}/#{MERGE_MAX_ATTEMPTS}" if attempt > 0
 
     # Fetch latest main from bare repo
-    unless system('jj', 'git', 'fetch', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+    unless system('git', 'fetch', 'origin', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
       log "Goal ##{goal_id} git fetch failed"
       return :merge_failed
     end
 
-    # Rebase work onto current main@origin
-    unless system('jj', 'rebase', '-d', 'main@origin', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+    # Rebase work onto current origin/main
+    unless system('git', 'rebase', 'origin/main', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
       log "Goal ##{goal_id} rebase failed"
+      system('git', 'rebase', '--abort', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
       return :merge_failed
     end
 
-    # Check for conflicts after rebase
-    jj_status = IO.popen(['jj', 'status'], chdir: clone_dir, err: '/dev/null', &:read)
-    if jj_status =~ /conflict/i
+    # Check for conflict markers (unmerged paths)
+    git_status = IO.popen(['git', 'status', '--porcelain'], chdir: clone_dir, err: '/dev/null', &:read)
+    if git_status.lines.any? { |l| l =~ /^U/ }
       log "Goal ##{goal_id} rebase produced conflicts"
+      system('git', 'rebase', '--abort', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
       return :conflict
     end
 
-    # Commit any uncommitted working copy changes
-    system('jj', 'commit', '-m', "Goal ##{goal_id}: #{title}",
-           chdir: clone_dir, out: '/dev/null', err: '/dev/null')
-
-    # Check if there are commits beyond main@origin
-    jj_log = IO.popen(['jj', 'log', '-r', 'main@origin..@-', '--no-graph', '-T', 'change_id.short()'],
-                       chdir: clone_dir, err: '/dev/null', &:read)
-    if jj_log.strip.empty?
+    # Check if there are commits beyond origin/main
+    git_log = IO.popen(['git', 'log', '--oneline', 'origin/main..HEAD'],
+                        chdir: clone_dir, err: '/dev/null', &:read)
+    if git_log.strip.empty?
       log "Goal ##{goal_id} no changes to merge"
       return :no_changes
     end
@@ -174,35 +169,20 @@ def merge_to_main(goal_id, title, clone_dir)
       end
     end
 
-    # Move working copy to main@origin
-    unless system('jj', 'new', 'main@origin', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
-      log "Goal ##{goal_id} failed to move to main@origin"
+    # Squash all commits since origin/main into a single commit
+    unless system('git', 'reset', '--soft', 'origin/main', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+      log "Goal ##{goal_id} failed to reset for squash"
       return :merge_failed
     end
 
-    # Squash all branch commits into working copy
-    unless system('jj', 'squash', '--from', 'all:main@origin..main', '--into', '@',
-                  chdir: clone_dir, out: '/dev/null', err: '/dev/null')
-      log "Goal ##{goal_id} failed to squash commits"
-      return :merge_failed
-    end
-
-    # Commit the squashed changes
-    unless system('jj', 'commit', '-m', "Goal ##{goal_id}: #{title}",
+    unless system('git', 'commit', '-m', "Goal ##{goal_id}: #{title}",
                   chdir: clone_dir, out: '/dev/null', err: '/dev/null')
       log "Goal ##{goal_id} failed to commit squashed changes"
       return :merge_failed
     end
 
-    # Update main bookmark
-    unless system('jj', 'bookmark', 'set', 'main', '-r', '@-',
-                  chdir: clone_dir, out: '/dev/null', err: '/dev/null')
-      log "Goal ##{goal_id} failed to set main bookmark"
-      return :merge_failed
-    end
-
-    # Push main to bare repo — this is the atomic "claim" on main
-    if system('jj', 'git', 'push', '--bookmark', 'main',
+    # Push to bare repo — this is the atomic "claim" on main
+    if system('git', 'push', 'origin', 'HEAD:main',
               chdir: clone_dir, out: '/dev/null', err: '/dev/null')
       return :ok
     end

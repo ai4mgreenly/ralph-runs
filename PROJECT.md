@@ -35,11 +35,11 @@ ralph-runs polling loop (every 5s) picks it up
         ↓
 goal-start → status: running (atomic, race-safe)
         ↓
-git clone → jj init → write goal to .pipeline/cache/goal.md
+git clone → write goal to .pipeline/cache/goal.md
         ↓
 spawn ralph (the agent loop) in the clone
         ↓
-ralph iterates: prompt Claude → execute tools → record progress → jj commit
+ralph iterates: prompt Claude → execute tools → record progress → git commit
         ↓
 ralph exits 0 (success) or non-zero (failure)
         ↓
@@ -107,7 +107,7 @@ This is the outer loop. It manages concurrency, goal lifecycle, cloning, PR crea
 1. **Check for shutdown** (Ctrl+C) — gracefully kills running ralphs, requeues their goals
 2. **Collect finished ralphs** — checks PIDs for completed processes
 3. **Handle results:**
-   - Exit 0: commit remaining changes, create jj bookmark `goal-<id>`, push, create PR via `gh`, auto-merge
+   - Exit 0: squash commits, rebase onto origin/main, push
    - Exit non-zero: post failure comment to goal, mark stuck, requeue (up to 3 retries), notify on exhaustion
 4. **Fill open slots** — fetch queued goals across all repos, prioritize untried over retried (fairness), clone repo, write goal body, spawn ralph
 
@@ -133,7 +133,7 @@ This is the inner loop. It executes a single goal by iterating Claude invocation
 3. Stream and parse the response (tool calls, text blocks, thinking blocks)
 4. Extract structured output: `{"summary": "what I did"}` or `{"summary": "DONE"}`
 5. Append progress to `goal-progress.jsonl`
-6. Commit iteration via `jj commit -m "ralph: iteration N"` (excludes runtime files)
+6. Commit iteration via `git commit -m "ralph: iteration N"` (excludes runtime files)
 7. Every ~5 iterations, invoke a summarizer to condense progress history
 
 **Context management is critical.** Ralph has a 200K token context window. The summarizer prevents unbounded growth by compressing older iterations into a narrative summary while preserving failed approaches, key decisions, and current state.
@@ -205,15 +205,7 @@ Success criteria (e.g., "all tests pass", specific commands that must succeed).
 
 ## Version Control
 
-This project uses **Jujutsu (jj)** instead of git. Key differences:
-
-- Commits are created with `jj commit -m "msg"` (not git commit)
-- Branches are called "bookmarks" (`jj bookmark create/set/track`)
-- Remote tracking uses `main@origin` syntax
-- Working copy (`@`) is always a commit being edited
-- Remote commits are immutable — use `jj restore` instead of `jj rebase` for remote branches
-
-The orchestrator creates one bookmark per goal (`goal-<id>`) on HEAD of the commit stack, then pushes the entire stack.
+The ralph-runs project itself uses **Jujutsu (jj)** for version control, but agent clones use **plain git**. The orchestrator clones target repos with `git clone`, agents commit iterations with `git commit`, and the merge-to-main flow uses `git rebase` + `git push`.
 
 ## Environment
 
@@ -259,7 +251,7 @@ Three skillsets exist:
 ## Dependencies
 
 - **Ruby** (3.x) — all scripts
-- **jj (Jujutsu)** — version control
+- **jj (Jujutsu)** — version control (for ralph-runs repo itself; agent clones use git)
 - **Claude Code CLI** (`claude` command) — invoked by ralph for each iteration
 - **GitHub CLI** (`gh` command) — PR creation and management
 - **direnv** — environment management (optional but expected)

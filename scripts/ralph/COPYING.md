@@ -6,7 +6,7 @@ Ralph is a standalone agentic loop. You can copy it into your own project with m
 
 - **Ruby** (tested with 3.x, should work with 2.7+)
 - **Claude Code CLI** (`claude` command available)
-- **jj (Jujutsu)** for version control (or tell claude to change it back to git)
+- **git** for version control
 
 ## Quick Setup
 
@@ -89,26 +89,6 @@ The template uses ERB with these variables:
 ### Modify the summarizer template
 
 Edit `summarizer.md.erb` to change how progress gets condensed.
-
-### Change version control
-
-Ralph uses `jj commit` for committing each iteration. To use git instead, modify `commit_iteration`:
-
-```ruby
-def commit_iteration(progress)
-  short_progress = progress.to_s[0, 200]
-  short_progress += '...' if progress.to_s.length > 200
-
-  msg = <<~MSG
-    ralph: iteration #{@iteration}
-
-    #{short_progress}
-  MSG
-
-  # Change this line:
-  system("git add -A && git commit -m #{msg.shellescape} >/dev/null 2>&1")
-end
-```
 
 ### Change skillset integration
 

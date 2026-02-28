@@ -129,7 +129,7 @@ class Ralph
     summarize_if_needed if @continue_run
 
     # Capture start commit hash
-    @start_commit = `jj log -r @ --no-graph -T 'commit_id' 2>/dev/null`.strip
+    @start_commit = `git rev-parse HEAD 2>/dev/null`.strip
     @start_commit = nil if @start_commit.empty?
 
     @exit_reason = nil
@@ -151,7 +151,7 @@ class Ralph
     end
 
     # Capture end commit hash
-    @end_commit = `jj log -r @ --no-graph -T 'commit_id' 2>/dev/null`.strip
+    @end_commit = `git rev-parse HEAD 2>/dev/null`.strip
     @end_commit = nil if @end_commit.empty?
 
     display_summary
@@ -240,14 +240,14 @@ class Ralph
 
   def handle_dirty_state
     # Check if working copy has changes
-    status = `jj status 2>/dev/null`.strip
-    return if status.empty? || status.include?('working copy') && status.include?('no changes')
+    status = `git status --porcelain 2>/dev/null`.strip
+    return if status.empty?
 
     # Working copy is dirty - commit and record as iteration
     @iteration += 1
-    revision = `jj log -r @ --no-graph -T 'change_id.short()' 2>/dev/null`.strip
+    revision = `git rev-parse --short HEAD 2>/dev/null`.strip
 
-    progress = "Dirty working copy detected and committed, use `jj diff -r #{revision}` to see the changes."
+    progress = "Dirty working copy detected and committed, use `git diff #{revision}~1..#{revision}` to see the changes."
     record_progress(progress)
     commit_iteration("dirty state recovery")
 
@@ -808,25 +808,17 @@ class Ralph
       #{short_progress}
     MSG
 
-    # Save current content of Ralph's runtime files
-    runtime_files = [@progress_file, @summary_file, @summary_meta_file, @goal_file, 'ralph.log']
-    saved_content = {}
-    runtime_files.each do |f|
-      saved_content[f] = File.read(f) if File.exist?(f)
-    end
+    # Stage all changes
+    system('git add -A >/dev/null 2>&1')
 
-    # Restore runtime files to their pre-modification state (exclude from commit)
+    # Unstage runtime files (exclude from commit, leave in working tree)
+    runtime_files = [@progress_file, @summary_file, @summary_meta_file, @goal_file, 'ralph.log']
     runtime_files.each do |f|
-      system("jj restore #{f.shellescape} 2>/dev/null") if File.exist?(f)
+      system("git reset HEAD -- #{f.shellescape} >/dev/null 2>&1") if File.exist?(f)
     end
 
     # Commit only code changes
-    system("jj commit -m #{msg.shellescape} >/dev/null 2>&1")
-
-    # Restore runtime files to their current state in new working copy
-    saved_content.each do |f, content|
-      File.write(f, content)
-    end
+    system("git commit -m #{msg.shellescape} >/dev/null 2>&1")
   end
 
   # ─────────────────────────────────────────────────────────────
@@ -1016,7 +1008,7 @@ class Ralph
     return [lines_added, lines_deleted] if start_commit == end_commit
 
     # Get diff stats
-    stat_output = `jj diff --stat --from #{start_commit} --to #{end_commit} 2>/dev/null`
+    stat_output = `git diff --stat #{start_commit}..#{end_commit} 2>/dev/null`
     return [lines_added, lines_deleted] if stat_output.empty?
 
     # Parse summary line: "3 files changed, 40 insertions(+), 5 deletions(-)"
