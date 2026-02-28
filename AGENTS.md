@@ -1,6 +1,6 @@
 # ralph-runs
 
-Autonomous software development pipeline orchestrator. Polls for queued goals from the ralph-plans API, spawns AI agents ("ralphs") to execute them in isolated repository clones, and creates pull requests from the results. Handles concurrency and retries (up to 3 attempts with failure context).
+Autonomous software development pipeline orchestrator. Polls for queued goals from the ralph-plans API, spawns AI agents ("ralphs") to execute them in isolated repository clones, and merges results to main. Pushes to GitHub as backup. Handles concurrency and retries (up to 3 attempts with failure context).
 
 Philosophy: deliberately minimalist. Small, focused Ruby scripts coordinating through a REST API and the filesystem.
 
@@ -22,7 +22,7 @@ This project contains the orchestrator, the agent loop, and all goal management 
 
 ```
 goal-create (draft) → goal-queue (queued) → orchestrator picks up →
-  clone repo → spawn ralph → iterate until done → create PR → goal-submitted
+  clone repo → spawn ralph → iterate until done → merge to main → push to GitHub → goal-done
 ```
 
 Failures: comment posted → goal-stuck → goal-retry (up to 3 attempts).
@@ -31,8 +31,8 @@ Failures: comment posted → goal-stuck → goal-retry (up to 3 attempts).
 
 | Script | Purpose |
 |--------|---------|
-| `scripts/ralph-runs/run` | Orchestrator — polling, concurrency, cloning, PR creation, retries (~590 lines) |
-| `scripts/ralph/run` | Agent loop — iterates Claude invocations until goal complete (~1380 lines) |
+| `scripts/ralph-runs/run` | Orchestrator — polling, concurrency, cloning, merge to main, retries |
+| `scripts/ralph/run` | Agent loop — iterates Claude invocations until goal complete |
 | `scripts/ralph/prompt.md.erb` | Worker prompt template |
 | `scripts/ralph/summarizer.md.erb` | Progress summarization template |
 | `scripts/goal-*/run` | Goal state management scripts |
@@ -41,8 +41,7 @@ Failures: comment posted → goal-stuck → goal-retry (up to 3 attempts).
 ### Goal State Machine
 
 ```
-draft → queued → running → submitted → merged
-                    │                 └→ rejected
+draft → queued → running → done
                     └→ stuck → queued (retry, up to 3x)
 Any non-terminal state → cancelled (via goal-cancel)
 ```
@@ -143,7 +142,7 @@ Full guide: `.claude/library/goal-authoring/SKILL.md`
 
 ## Common Tasks
 
-**Changing ralph's prompt:** Edit `scripts/ralph/prompt.md.erb`. ERB variables: `goal`, `summary`, `summary_end`, `recent`, `agents_md`, `pull_request`, `branch_name`.
+**Changing ralph's prompt:** Edit `scripts/ralph/prompt.md.erb`. ERB variables: `goal`, `summary`, `summary_end`, `recent`, `agents_md`.
 
 **Changing the summarizer:** Edit `scripts/ralph/summarizer.md.erb`. Variables: `summary`, `summary_end`, `current`, `recent`.
 

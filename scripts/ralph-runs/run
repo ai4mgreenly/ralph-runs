@@ -7,7 +7,7 @@
 # Usage: ralph-runs --max N [--duration DURATION]
 #
 # Picks up queued goals, spawns ralphs in isolated clones, collects results,
-# creates PRs on success, retries on failure.
+# merges to main on success, pushes to GitHub as backup, retries on failure.
 #
 # Arguments:
 #   --max N            Maximum concurrent ralphs (required)
@@ -29,7 +29,6 @@ require 'shellwords'
 
 SCRIPT_DIR = File.dirname(File.realpath(__FILE__))
 PROJECT_ROOT = File.expand_path('../..', SCRIPT_DIR)
-PR_DESCRIPTION_TEMPLATE = File.join(SCRIPT_DIR, 'pr-description.md.erb')
 RALPH_DIR = ENV['RALPH_DIR'] || File.join(ENV['HOME'], '.local', 'state', 'ralph')
 CLONE_DIR = File.join(RALPH_DIR, 'clones')
 LOG_DIR = File.join(RALPH_DIR, 'logs')
@@ -40,7 +39,7 @@ NOTIFY_SCRIPT = File.join(SCRIPT_DIR, '..', 'notify', 'run')
 GOAL_LIST_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-list', 'run')
 GOAL_GET_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-get', 'run')
 GOAL_START_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-start', 'run')
-GOAL_SUBMITTED_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-submitted', 'run')
+GOAL_DONE_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-done', 'run')
 GOAL_STUCK_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-stuck', 'run')
 GOAL_COMMENT_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-comment', 'run')
 GOAL_COMMENTS_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-comments', 'run')
@@ -107,13 +106,6 @@ def build_retry_context(goal_body, comments)
 end
 
 
-def add_pr_label(pr_number, label, nwo)
-  system('gh', 'pr', 'edit', pr_number.to_s,
-         '--repo', nwo,
-         '--add-label', label,
-         out: '/dev/null', err: '/dev/null')
-end
-
 def clone_repo(remote_url, org, repo, goal_id)
   dest = File.join(CLONE_DIR, org, repo, goal_id.to_s)
   FileUtils.mkdir_p(File.dirname(dest))
@@ -136,57 +128,7 @@ def delete_goal_dir(goal_id)
   FileUtils.rm_rf(dest) if Dir.exist?(dest)
 end
 
-def generate_pr_description(goal_id)
-  goal_dir = File.join(GOAL_DIR, goal_id.to_s)
-  goal_file = File.join(goal_dir, 'goal.md')
-  progress_file = File.join(goal_dir, 'goal-progress.jsonl')
-
-  # Read goal body
-  return nil unless File.exist?(goal_file)
-  goal = File.read(goal_file)
-
-  # Read progress entries
-  progress_entries = []
-  if File.exist?(progress_file)
-    File.readlines(progress_file).each do |line|
-      entry = JSON.parse(line.strip)
-      progress_entries << entry['progress'] if entry['progress']
-    end
-  end
-
-  # Render ERB template
-  template = ERB.new(File.read(PR_DESCRIPTION_TEMPLATE))
-  prompt = template.result(binding)
-
-  # Invoke Claude with Haiku model
-  schema = JSON.generate({
-    type: 'object',
-    properties: {
-      description: { type: 'string' }
-    },
-    required: ['description']
-  })
-  cmd = "ANTHROPIC_API_KEY= claude -p --model haiku --output-format json --json-schema #{Shellwords.escape(schema)}"
-
-  stdout = Timeout.timeout(60) do
-    IO.popen(cmd, 'r+') do |io|
-      io.write(prompt)
-      io.close_write
-      io.read
-    end
-  end
-  return nil if stdout.nil? || stdout.empty?
-
-  result = JSON.parse(stdout)
-  result.dig('structured_output', 'description')
-rescue StandardError => e
-  log "PR description generation failed: #{e.class}: #{e.message}"
-  nil
-end
-
-def create_pr_from_clone(goal_id, title, clone_dir, nwo, goal_id_for_desc = nil)
-  branch = "goal-#{goal_id}-#{Time.now.to_i.to_s(36)}"
-
+def merge_to_main(goal_id, title, clone_dir)
   # Commit any uncommitted working copy changes
   system('jj', 'commit', '-m', "Goal ##{goal_id}: #{title}",
          chdir: clone_dir, out: '/dev/null', err: '/dev/null')
@@ -195,43 +137,61 @@ def create_pr_from_clone(goal_id, title, clone_dir, nwo, goal_id_for_desc = nil)
   jj_log = IO.popen(['jj', 'log', '-r', 'main@origin..@-', '--no-graph', '-T', 'change_id.short()'],
                      chdir: clone_dir, err: '/dev/null', &:read)
   if jj_log.strip.empty?
-    log "Goal ##{goal_id} no changes to push, skipping PR"
-    return nil
+    log "Goal ##{goal_id} no changes to merge"
+    return :no_changes
   end
 
-  # Create bookmark on last commit, track, and push
-  system('jj', 'bookmark', 'create', branch, '-r', '@-',
-         chdir: clone_dir, out: '/dev/null', err: '/dev/null')
-  system('jj', 'bookmark', 'track', "#{branch}@origin",
-         chdir: clone_dir, out: '/dev/null', err: '/dev/null')
-  system('jj', 'git', 'push', '--bookmark', branch,
-         chdir: clone_dir, out: '/dev/null', err: '/dev/null')
-
-  unless $?.exitstatus == 0
-    log "Goal ##{goal_id} failed to push"
-    return nil
+  # Run .ralph/check if it exists
+  check_script = File.join(clone_dir, '.ralph', 'check')
+  if File.exist?(check_script)
+    unless system(check_script, chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+      log "Goal ##{goal_id} .ralph/check failed"
+      return :check_failed
+    end
   end
 
-  # Create PR
-  generated_desc = generate_pr_description(goal_id_for_desc || goal_id)
-  if generated_desc && !generated_desc.empty?
-    body = "#{generated_desc}\n\nGoal ##{goal_id}"
-  else
-    body = "Goal ##{goal_id}"
+  # Squash-merge branch onto main
+  # Move working copy to main
+  unless system('jj', 'new', 'main', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+    log "Goal ##{goal_id} failed to move to main"
+    return :merge_failed
   end
 
-  pr_output = IO.popen(
-    ['gh', 'pr', 'create', '--repo', nwo, '--title', title, '--body', body, '--head', branch],
-    chdir: clone_dir, err: '/dev/null', &:read
-  )
-
-  if $?.exitstatus == 0
-    pr_num = pr_output.strip.split('/').last
-    pr_num
-  else
-    log "Goal ##{goal_id} failed to create PR"
-    nil
+  # Squash all branch commits into working copy
+  unless system('jj', 'squash', '--from', 'all:main@origin..main', '--into', '@',
+                chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+    log "Goal ##{goal_id} failed to squash commits"
+    return :merge_failed
   end
+
+  # Commit the squashed changes
+  unless system('jj', 'commit', '-m', "Goal ##{goal_id}: #{title}",
+                chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+    log "Goal ##{goal_id} failed to commit squashed changes"
+    return :merge_failed
+  end
+
+  # Update main bookmark
+  unless system('jj', 'bookmark', 'set', 'main', '-r', '@-',
+                chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+    log "Goal ##{goal_id} failed to set main bookmark"
+    return :merge_failed
+  end
+
+  # Push main to bare repo
+  unless system('jj', 'git', 'push', '--bookmark', 'main',
+                chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+    log "Goal ##{goal_id} failed to push main to bare repo"
+    return :merge_failed
+  end
+
+  :ok
+end
+
+def push_to_github(org, repo)
+  bare_repo = "/mnt/store/git/#{org}/#{repo}"
+  system('git', '--git-dir', bare_repo, 'push', 'origin', 'main',
+         out: '/dev/null', err: '/dev/null')
 end
 
 def notify(title, message)
@@ -335,28 +295,45 @@ def main(options)
       if status.exitstatus == 0
         log "#{gl} ralph finished (exit 0, #{elapsed})"
 
-        # Create PR
-        pr_num = create_pr_from_clone(goal_id, info[:title], info[:dir], nwo, goal_id)
-        if pr_num
-          log "#{gl} PR created → ##{pr_num}"
-        end
+        result = merge_to_main(goal_id, info[:title], info[:dir])
 
-        # Mark submitted, auto-merge, delete clone
-        submitted_args = [goal_id.to_s]
-        submitted_args << '--pr' << pr_num.to_s if pr_num
-        run_script(GOAL_SUBMITTED_SCRIPT, *submitted_args)
-        if pr_num
-          merge_cmd = ['gh', 'pr', 'merge', '--repo', nwo, '--auto', '--squash', pr_num.to_s]
-          if system(*merge_cmd, out: '/dev/null', err: '/dev/null')
-            log "#{gl} auto-merge enabled on PR ##{pr_num}"
+        case result
+        when :no_changes
+          log "#{gl} no changes to merge"
+          run_script(GOAL_DONE_SCRIPT, goal_id.to_s)
+          completed_count += 1
+          log "#{gl} → done"
+          delete_clone(org, repo_name, goal_id)
+          delete_goal_dir(goal_id)
+        when :check_failed, :merge_failed
+          log "#{gl} #{result}, treating as failure"
+          post_comment(goal_id, "Merge failed (#{result})")
+          retries[goal_id] += 1
+
+          if retries[goal_id] > MAX_RETRIES
+            run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
+            log "#{gl} → stuck (#{retries[goal_id]} retries exhausted)"
+            notify("#{gl} stuck", "\"#{info[:title]}\" failed #{retries[goal_id]} times")
           else
-            log "#{gl} auto-merge failed on PR ##{pr_num} (non-fatal)"
+            run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
+            run_script(GOAL_RETRY_SCRIPT, goal_id.to_s)
+            log "#{gl} → re-queued (retry #{retries[goal_id]}/#{MAX_RETRIES})"
           end
+          delete_clone(org, repo_name, goal_id)
+          delete_goal_dir(goal_id)
+        when :ok
+          log "#{gl} merged to main"
+          if push_to_github(org, repo_name)
+            log "#{gl} pushed to GitHub"
+          else
+            log "#{gl} GitHub push failed (non-fatal)"
+          end
+          run_script(GOAL_DONE_SCRIPT, goal_id.to_s)
+          completed_count += 1
+          log "#{gl} → done"
+          delete_clone(org, repo_name, goal_id)
+          delete_goal_dir(goal_id)
         end
-        completed_count += 1
-        log "#{gl} → submitted"
-        delete_clone(org, repo_name, goal_id)
-        delete_goal_dir(goal_id)
       else
         log "#{gl} ralph finished (exit #{status.exitstatus}, #{elapsed})"
         retries[goal_id] += 1
@@ -417,7 +394,7 @@ def main(options)
         ri = goal['_repo']
         nwo = ri[:nwo]
         org = ri[:org]
-        remote_url = "git@github.com:#{org}/#{ri[:repo]}.git"
+        remote_url = "/mnt/store/git/#{org}/#{ri[:repo]}"
         repo_name = ri[:repo]
         goal_id = goal['id']
         title = goal['title']
@@ -475,7 +452,6 @@ def main(options)
           RALPH_SCRIPT,
           "--goal=#{goal_file}",
           '--log-mode',
-          '--no-pull-request',
           "--model=#{goal_model}",
           "--reasoning=#{goal_reasoning}",
           "--name=#{title}"

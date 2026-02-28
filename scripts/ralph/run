@@ -59,7 +59,7 @@ class Ralph
     'opus' => { input: 15.00, output: 75.00, cache_read: 1.50, cache_create: 18.75 }
   }.freeze
 
-  def initialize(goal_file:, duration:, model:, reasoning:, no_spinner:, no_art:, continue_run:, no_quotes:, debug:, pull_request:, log_mode:, name:)
+  def initialize(goal_file:, duration:, model:, reasoning:, no_spinner:, no_art:, continue_run:, no_quotes:, debug:, log_mode:, name:)
     @goal_file = goal_file
     @duration_seconds = parse_duration(duration)
     @model = model
@@ -72,7 +72,6 @@ class Ralph
     @no_quotes = log_mode ? true : no_quotes
     @continue_run = continue_run
     @debug = debug
-    @pull_request = pull_request
     @name = name
 
     # Disable output buffering in log mode
@@ -1272,7 +1271,6 @@ options = {
   no_quotes: false,
   continue: false,
   debug: false,
-  pull_request: true,
   log_mode: false,
   name: nil
 }
@@ -1324,10 +1322,6 @@ OptionParser.new do |opts|
     options[:log_mode] = true
   end
 
-  opts.on('--[no-]pull-request', 'Create pull request when goal complete (default: enabled)') do |pr|
-    options[:pull_request] = pr
-  end
-
   opts.on('--name=NAME', 'Human-readable goal name for stats tracking') do |n|
     options[:name] = n
   end
@@ -1359,7 +1353,6 @@ ralph = Ralph.new(
   no_quotes: options[:no_quotes],
   continue_run: options[:continue],
   debug: options[:debug],
-  pull_request: options[:pull_request],
   log_mode: options[:log_mode],
   name: options[:name]
 )
