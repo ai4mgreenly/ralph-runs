@@ -90,7 +90,7 @@ def build_retry_context(goal_body, comments, attempt, max)
   parts = [goal_body]
 
   parts << "\n## Retry Context"
-  parts << "\n**Attempt #{attempt} of #{max + 1}.** The previous attempt completed the work but failed post-merge checks. Do NOT redo the work from scratch. Use the failure information below to diagnose what went wrong and fix only that."
+  parts << "\n**Attempt #{attempt} of #{max + 1}.** A previous attempt failed post-merge checks. Do NOT redo the work from scratch. Fix whatever is failing so all checks pass."
 
   unless comments.empty?
     parts << "\n### Failure Log"
@@ -105,8 +105,9 @@ def build_retry_context(goal_body, comments, attempt, max)
   parts << "\n### Required Action"
   parts << "1. Read the Failure Log above to understand what failed."
   parts << "2. Run `.ralph/check` (or the specific failing checks) to see the actual error output."
-  parts << "3. Fix the root cause — do not delete or modify `.ralph/check`."
-  parts << "4. Run `.ralph/check` again to confirm it passes before declaring DONE."
+  parts << "3. Fix whatever is failing — even if the failure is pre-existing or unrelated to the goal. All checks must pass. It is your job to make them pass."
+  parts << "4. Do not delete or modify `.ralph/check`."
+  parts << "5. Run `.ralph/check` again to confirm it passes before declaring DONE."
 
   parts.join("\n")
 end
