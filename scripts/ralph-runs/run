@@ -163,9 +163,10 @@ def merge_to_main(goal_id, title, clone_dir)
     # Run .ralph/check if it exists
     check_script = File.join(clone_dir, '.ralph', 'check')
     if File.exist?(check_script)
-      unless system(check_script, chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+      check_stdout, check_status = Open3.capture2(check_script, chdir: clone_dir)
+      unless check_status.success?
         log "Goal ##{goal_id} .ralph/check failed"
-        return :check_failed
+        return [:check_failed, check_stdout.strip]
       end
     end
 
@@ -304,6 +305,12 @@ def main(options)
 
         result = merge_to_main(goal_id, info[:title], info[:dir])
 
+        # Normalize result: extract check output if check failed
+        check_output = nil
+        if result.is_a?(Array)
+          result, check_output = result
+        end
+
         case result
         when :no_changes
           log "#{gl} no changes to merge"
@@ -314,7 +321,9 @@ def main(options)
           delete_goal_dir(goal_id)
         when :conflict, :check_failed, :merge_failed
           log "#{gl} #{result}, treating as failure"
-          post_comment(goal_id, "Merge failed (#{result})")
+          comment = "Merge failed (#{result})"
+          comment += "\n\n#{check_output}" if check_output && !check_output.empty?
+          post_comment(goal_id, comment)
           retries[goal_id] += 1
 
           if retries[goal_id] > MAX_RETRIES
