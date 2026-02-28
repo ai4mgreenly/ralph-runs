@@ -86,14 +86,14 @@ def get_goal_comments(goal_id)
   (result && result['ok'] && result['items']) || []
 end
 
-def build_retry_context(goal_body, comments)
+def build_retry_context(goal_body, comments, attempt, max)
   parts = [goal_body]
 
   parts << "\n## Retry Context"
-  parts << "\nThis is a retry of a failed attempt."
+  parts << "\n**Attempt #{attempt} of #{max + 1}.** The previous attempt completed the work but failed post-merge checks. Do NOT redo the work from scratch. Use the failure information below to diagnose what went wrong and fix only that."
 
   unless comments.empty?
-    parts << "\n### Comments"
+    parts << "\n### Failure Log"
     comments.each do |comment|
       created = comment['created_at'] || ''
       parts << "\n*#{created}:*"
@@ -101,6 +101,12 @@ def build_retry_context(goal_body, comments)
       parts << ""
     end
   end
+
+  parts << "\n### Required Action"
+  parts << "1. Read the Failure Log above to understand what failed."
+  parts << "2. Run `.ralph/check` (or the specific failing checks) to see the actual error output."
+  parts << "3. Fix the root cause — do not delete or modify `.ralph/check`."
+  parts << "4. Run `.ralph/check` again to confirm it passes before declaring DONE."
 
   parts.join("\n")
 end
@@ -465,7 +471,7 @@ def main(options)
         goal_body = goal_data['body']
         if retries[goal_id] > 0
           comments = get_goal_comments(goal_id)
-          goal_body = build_retry_context(goal_body, comments) unless comments.empty?
+          goal_body = build_retry_context(goal_body, comments, retries[goal_id], MAX_RETRIES)
         end
 
         # Write goal body into GOAL_DIR

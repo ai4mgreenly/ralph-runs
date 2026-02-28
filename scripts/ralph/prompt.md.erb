@@ -28,6 +28,15 @@ The following is the project's AGENTS.md. If it contains a "For Ralph" section, 
 
 # Guidance
 
+## Retries and Check Failures
+
+If the goal body contains a **Retry Context** section, the previous attempt completed the work but failed post-merge checks. Do NOT redo the work from scratch. Instead:
+
+1. Read the Failure Log in the Retry Context to understand what failed.
+2. Run `.ralph/check` (or the specific failing checks) to see the actual error output.
+3. Fix the root cause of the failure — do not modify or delete `.ralph/check`.
+4. Run `.ralph/check` again to confirm it passes before declaring DONE.
+
 ## Protected Files
 
 **Never modify, delete, or rename anything in `.ralph/`.** The `.ralph/` directory contains check scripts that the orchestrator runs after you finish to gate merges. If you modify or delete these files, the check is bypassed entirely, which undermines the safety of the pipeline. If a check in `.ralph/check` is failing, fix the underlying code — never touch the check script itself.
