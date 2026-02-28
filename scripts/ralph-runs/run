@@ -249,6 +249,18 @@ def goal_label(goal_id, repo_info)
   "Goal ##{goal_id} (#{repo_info[:nwo]})"
 end
 
+def kill_with_escalation(pid, timeout_secs = 5)
+  Process.kill('INT', pid) rescue nil
+  deadline = Time.now + timeout_secs
+  loop do
+    break if (Process.waitpid(pid, Process::WNOHANG) rescue nil)
+    break if Time.now >= deadline
+    sleep 0.5
+  end
+  Process.kill('KILL', pid) rescue nil
+  Process.wait(pid) rescue nil
+end
+
 def startup_cleanup
   # Recover orphaned running goals (left by a previous crash or kill -9)
   result = run_script(GOAL_LIST_SCRIPT, '--status', 'running')
@@ -306,8 +318,7 @@ def main(options)
     if @shutting_down
       log 'Shutting down...'
       running.each do |pid, info|
-        Process.kill('INT', pid) rescue nil
-        Process.wait(pid) rescue nil
+        kill_with_escalation(pid)
         info[:stream_thread]&.join rescue nil
 
         ri = info[:repo]
@@ -336,8 +347,7 @@ def main(options)
       # Goal is no longer running — aborted externally (e.g., via goal-abort)
       ri = info[:repo]
       log "#{goal_label(goal_id, ri)} externally aborted (status: #{goal_data['status']}), killing process"
-      Process.kill('INT', pid) rescue nil
-      Process.wait(pid) rescue nil
+      kill_with_escalation(pid)
       info[:stream_thread]&.join rescue nil
       delete_clone(ri[:org], ri[:repo], goal_id)
       delete_goal_dir(goal_id)
@@ -345,6 +355,8 @@ def main(options)
       aborted_pids << pid
     end
     aborted_pids.each { |pid| running.delete(pid) }
+
+    next if @shutting_down
 
     # ── Collect finished ralphs ──
     finished = []
