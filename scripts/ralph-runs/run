@@ -182,11 +182,23 @@ def merge_to_main(goal_id, title, clone_dir, direnv_env = nil)
     # Run .ralph/check if it exists
     check_script = File.join(clone_dir, '.ralph', 'check')
     if File.exist?(check_script)
+      # Log git state before running check
+      log "Goal ##{goal_id} .ralph/check pre-run: #{git_log.lines.count} commit(s) above origin/main"
+      log "Goal ##{goal_id} git log origin/main..HEAD:\n#{git_log.strip}"
+      log "Goal ##{goal_id} git status: #{git_status.strip.empty? ? '(clean)' : git_status.strip}"
+
+      # Log key environment vars
+      env_to_use = direnv_env || ENV.to_h
+      log "Goal ##{goal_id} check env: direnv_loaded=#{!direnv_env.nil?} PATH=#{env_to_use['PATH'].to_s[0, 120]}"
+
       check_cmd = direnv_env ? [direnv_env, check_script] : [check_script]
-      check_stdout, check_status = Open3.capture2(*check_cmd, chdir: clone_dir)
+      check_stdout, check_stderr, check_status = Open3.capture3(*check_cmd, chdir: clone_dir)
       unless check_status.success?
-        log "Goal ##{goal_id} .ralph/check failed"
-        return [:check_failed, check_stdout.strip]
+        log "Goal ##{goal_id} .ralph/check failed (exit #{check_status.exitstatus})"
+        log "Goal ##{goal_id} check stdout: #{check_stdout.strip.empty? ? '(empty)' : check_stdout.strip}"
+        log "Goal ##{goal_id} check stderr: #{check_stderr.strip.empty? ? '(empty)' : check_stderr.strip}"
+        combined_output = [check_stdout.strip, check_stderr.strip].reject(&:empty?).join("\n\n--- stderr ---\n")
+        return [:check_failed, combined_output]
       end
     end
 
