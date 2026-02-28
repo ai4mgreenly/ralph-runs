@@ -313,10 +313,9 @@ def main(options)
         ri = info[:repo]
         goal_id = info[:goal_id]
 
-        # Mark stuck, then requeue
+        # Mark stuck — leave for human intervention
         run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
-        run_script(GOAL_RETRY_SCRIPT, goal_id.to_s)
-        log "#{goal_label(goal_id, ri)} → re-queued (was running)"
+        log "#{goal_label(goal_id, ri)} → stuck (was running)"
 
         delete_clone(ri[:org], ri[:repo], goal_id)
         delete_goal_dir(goal_id)
