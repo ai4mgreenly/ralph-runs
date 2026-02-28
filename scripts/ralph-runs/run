@@ -249,15 +249,16 @@ def goal_label(goal_id, repo_info)
   "Goal ##{goal_id} (#{repo_info[:nwo]})"
 end
 
-def kill_with_escalation(pid, timeout_secs = 5)
-  Process.kill('INT', pid) rescue nil
+def kill_with_escalation(pid, pgid = nil, timeout_secs = 5)
+  target = pgid ? -pgid : pid
+  Process.kill('INT', target) rescue nil
   deadline = Time.now + timeout_secs
   loop do
     break if (Process.waitpid(pid, Process::WNOHANG) rescue nil)
     break if Time.now >= deadline
     sleep 0.5
   end
-  Process.kill('KILL', pid) rescue nil
+  Process.kill('KILL', target) rescue nil
   Process.wait(pid) rescue nil
 end
 
@@ -318,7 +319,7 @@ def main(options)
     if @shutting_down
       log 'Shutting down...'
       running.each do |pid, info|
-        kill_with_escalation(pid)
+        kill_with_escalation(pid, info[:pgid])
         info[:stream_thread]&.join rescue nil
 
         ri = info[:repo]
@@ -347,7 +348,7 @@ def main(options)
       # Goal is no longer running — aborted externally (e.g., via goal-abort)
       ri = info[:repo]
       log "#{goal_label(goal_id, ri)} externally aborted (status: #{goal_data['status']}), killing process"
-      kill_with_escalation(pid)
+      kill_with_escalation(pid, info[:pgid])
       info[:stream_thread]&.join rescue nil
       delete_clone(ri[:org], ri[:repo], goal_id)
       delete_goal_dir(goal_id)
@@ -563,9 +564,10 @@ def main(options)
         # Use Open3.popen2e to stream output with proper wait_thread handling
         log_file = File.open(ralph_log, 'w')
         ralph_cmd = direnv_env ? [direnv_env, *ralph_args] : ralph_args
-        stdin, stdout_and_stderr, wait_thread = Open3.popen2e(*ralph_cmd, chdir: clone_dir)
+        stdin, stdout_and_stderr, wait_thread = Open3.popen2e(*ralph_cmd, chdir: clone_dir, pgroup: true)
         stdin.close  # We don't need stdin
         pid = wait_thread.pid
+        pgid = Process.getpgid(pid) rescue pid
 
         # Stream output in a background thread
         stream_thread = Thread.new do
@@ -593,7 +595,8 @@ def main(options)
           stream_thread: stream_thread,
           wait_thread: wait_thread,
           repo: ri,
-          direnv_env: direnv_env
+          direnv_env: direnv_env,
+          pgid: pgid
         }
       end
     end
