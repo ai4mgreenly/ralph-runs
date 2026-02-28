@@ -325,6 +325,27 @@ def main(options)
       break
     end
 
+    # ── Detect externally-aborted goals ──
+    aborted_pids = []
+    running.each do |pid, info|
+      goal_id = info[:goal_id]
+      goal_data = run_script(GOAL_GET_SCRIPT, goal_id.to_s)
+      next unless goal_data && goal_data['ok']
+      next if goal_data['status'] == 'running'
+
+      # Goal is no longer running — aborted externally (e.g., via goal-abort)
+      ri = info[:repo]
+      log "#{goal_label(goal_id, ri)} externally aborted (status: #{goal_data['status']}), killing process"
+      Process.kill('INT', pid) rescue nil
+      Process.wait(pid) rescue nil
+      info[:stream_thread]&.join rescue nil
+      delete_clone(ri[:org], ri[:repo], goal_id)
+      delete_goal_dir(goal_id)
+      log "#{goal_label(goal_id, ri)} cleaned up (aborted)"
+      aborted_pids << pid
+    end
+    aborted_pids.each { |pid| running.delete(pid) }
+
     # ── Collect finished ralphs ──
     finished = []
     running.each do |pid, info|
