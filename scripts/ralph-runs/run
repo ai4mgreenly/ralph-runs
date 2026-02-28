@@ -385,6 +385,7 @@ def main(options)
           run_script(GOAL_DONE_SCRIPT, goal_id.to_s)
           completed_count += 1
           log "#{gl} → done"
+          notify("#{gl} done", "\"#{info[:title]}\" completed in #{elapsed}")
           delete_clone(org, repo_name, goal_id)
           delete_goal_dir(goal_id)
         when :conflict, :check_failed, :merge_failed
@@ -415,6 +416,7 @@ def main(options)
           run_script(GOAL_DONE_SCRIPT, goal_id.to_s)
           completed_count += 1
           log "#{gl} → done"
+          notify("#{gl} done", "\"#{info[:title]}\" completed in #{elapsed}")
           delete_clone(org, repo_name, goal_id)
           delete_goal_dir(goal_id)
         end

@@ -155,12 +155,10 @@ class Ralph
     @end_commit = nil if @end_commit.empty?
 
     display_summary
-    send_notification
   end
 
   def interrupt!
     @exit_reason = :interrupted
-    send_notification
   end
 
   private
@@ -950,48 +948,6 @@ class Ralph
 
   def word_wrap(text, width)
     text.gsub(/(.{1,#{width}})(\s+|$)/, "\\1\n").strip
-  end
-
-  # ─────────────────────────────────────────────────────────────
-  # Notifications
-  # ─────────────────────────────────────────────────────────────
-
-  def notify_enabled?
-    ENV['NTFY_TOPIC'] && ENV['NTFY_API_KEY']
-  end
-
-  def send_notification
-    return unless notify_enabled?
-
-    elapsed = format_elapsed((Time.now - @start_time).to_i)
-    goal_name = File.basename(@goal_file, '.*').sub(/-goal$/, '')
-
-    case @exit_reason
-    when :done
-      title = "Ralph: #{goal_name} complete"
-      message = "Goal achieved in #{@iteration} iterations (#{elapsed})"
-    when :timeout
-      title = "Ralph: #{goal_name} timeout"
-      message = "Time budget expired after #{@iteration} iterations (#{elapsed})"
-    when :interrupted
-      title = "Ralph: #{goal_name} interrupted"
-      message = "Stopped at iteration #{@iteration} (#{elapsed})"
-    else
-      title = "Ralph: #{goal_name} exited"
-      message = "Exited after #{@iteration} iterations (#{elapsed})"
-    end
-
-    notify_script = File.join(SCRIPT_DIR, '..', 'notify', 'run')
-    payload = { title: title, message: message }.to_json
-
-    IO.popen(notify_script, 'r+') do |io|
-      io.write(payload)
-      io.close_write
-      io.read  # consume output
-    end
-  rescue StandardError => e
-    # Notification failure is non-fatal
-    $stderr.puts "\e[33mNotification failed: #{e.message}\e[0m"
   end
 
   # ─────────────────────────────────────────────────────────────
