@@ -127,7 +127,19 @@ end
 
 MERGE_MAX_ATTEMPTS = 10
 
-def merge_to_main(goal_id, title, clone_dir)
+def load_direnv_env(dir)
+  return nil unless File.exist?(File.join(dir, '.envrc'))
+
+  system('/usr/bin/direnv', 'allow', dir, out: '/dev/null', err: '/dev/null')
+  json_output = IO.popen(['/usr/bin/direnv', 'export', 'json'], chdir: dir, err: '/dev/null', &:read)
+  return nil unless $?.exitstatus == 0 && !json_output.strip.empty?
+
+  ENV.to_h.merge(JSON.parse(json_output))
+rescue JSON::ParserError
+  nil
+end
+
+def merge_to_main(goal_id, title, clone_dir, direnv_env = nil)
   MERGE_MAX_ATTEMPTS.times do |attempt|
     log "Goal ##{goal_id} merge attempt #{attempt + 1}/#{MERGE_MAX_ATTEMPTS}" if attempt > 0
 
@@ -163,7 +175,8 @@ def merge_to_main(goal_id, title, clone_dir)
     # Run .ralph/check if it exists
     check_script = File.join(clone_dir, '.ralph', 'check')
     if File.exist?(check_script)
-      check_stdout, check_status = Open3.capture2(check_script, chdir: clone_dir)
+      check_cmd = direnv_env ? [direnv_env, check_script] : [check_script]
+      check_stdout, check_status = Open3.capture2(*check_cmd, chdir: clone_dir)
       unless check_status.success?
         log "Goal ##{goal_id} .ralph/check failed"
         return [:check_failed, check_stdout.strip]
@@ -303,7 +316,7 @@ def main(options)
       if status.exitstatus == 0
         log "#{gl} ralph finished (exit 0, #{elapsed})"
 
-        result = merge_to_main(goal_id, info[:title], info[:dir])
+        result = merge_to_main(goal_id, info[:title], info[:dir], info[:direnv_env])
 
         # Normalize result: extract check output if check failed
         check_output = nil
@@ -434,6 +447,10 @@ def main(options)
         end
         log "#{gl} cloned to clones/#{org}/#{repo_name}/#{goal_id}/"
 
+        # Load .envrc environment if present
+        direnv_env = load_direnv_env(clone_dir)
+        log "#{gl} loaded .envrc environment" if direnv_env
+
         # Fetch goal body
         goal_data = run_script(GOAL_GET_SCRIPT, goal_id.to_s)
         unless goal_data && goal_data['ok']
@@ -476,7 +493,8 @@ def main(options)
 
         # Use Open3.popen2e to stream output with proper wait_thread handling
         log_file = File.open(ralph_log, 'w')
-        stdin, stdout_and_stderr, wait_thread = Open3.popen2e(*ralph_args, chdir: clone_dir)
+        ralph_cmd = direnv_env ? [direnv_env, *ralph_args] : ralph_args
+        stdin, stdout_and_stderr, wait_thread = Open3.popen2e(*ralph_cmd, chdir: clone_dir)
         stdin.close  # We don't need stdin
         pid = wait_thread.pid
 
@@ -505,7 +523,8 @@ def main(options)
           started_at: Time.now,
           stream_thread: stream_thread,
           wait_thread: wait_thread,
-          repo: ri
+          repo: ri,
+          direnv_env: direnv_env
         }
       end
     end
