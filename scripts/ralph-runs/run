@@ -468,7 +468,7 @@ def main(options)
     end
 
     # ── Fill open slots ──
-    result = run_script(GOAL_LIST_SCRIPT, '--status', 'queued')
+    result = run_script(GOAL_LIST_SCRIPT, '--status', 'queued', '--ready')
     all_queued = (result && result['ok'] && result['items']) || []
     all_queued.each do |g|
       g['_repo'] = { org: g['org'], repo: g['repo'], nwo: "#{g['org']}/#{g['repo']}" }

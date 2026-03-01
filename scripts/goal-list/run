@@ -23,10 +23,11 @@ def main
   status = nil
   org = nil
   repo = nil
+  ready = false
 
   OptionParser.new do |opts|
     opts.banner = <<~HELP
-      Usage: goal-list [--status STATUS] [--org ORG] [--repo REPO]
+      Usage: goal-list [--status STATUS] [--org ORG] [--repo REPO] [--ready]
 
       List pipeline goals.
 
@@ -34,6 +35,7 @@ def main
         --status STATUS   Filter by status (#{VALID_STATUSES.join(', ')})
         --org ORG         Filter by organization
         --repo REPO       Filter by repository name
+        --ready           Only include goals that are ready to start (dependencies met)
 
       Output:
         JSON {"ok": true, "items": [...]}
@@ -42,6 +44,7 @@ def main
       Examples:
         goal-list                          # all goals
         goal-list --status queued          # only queued goals
+        goal-list --status queued --ready  # only startable queued goals
         goal-list --org mgreenly           # goals for an org
         goal-list --org mgreenly --repo ikigai
     HELP
@@ -49,6 +52,7 @@ def main
     opts.on('--status=STATUS', 'Filter by status') { |s| status = s }
     opts.on('--org=ORG', 'Filter by organization') { |o| org = o }
     opts.on('--repo=REPO', 'Filter by repository') { |r| repo = r }
+    opts.on('--ready', 'Only include goals ready to start') { ready = true }
   end.parse!
 
   # Support positional status arg for backwards compat
@@ -64,6 +68,7 @@ def main
   params['status'] = status if status
   params['org'] = org if org
   params['repo'] = repo if repo
+  params['ready'] = 'true' if ready
   uri.query = URI.encode_www_form(params) unless params.empty?
 
   resp = Net::HTTP.get_response(uri)
