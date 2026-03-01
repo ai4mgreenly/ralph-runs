@@ -48,14 +48,7 @@ If the goal body contains a **Retry Context** section, a previous attempt failed
 
 ## Version Control
 
-**You are in a git clone, not a jj repo. Never use jj commands.** The orchestrator handles cloning, merging, and pushing. Your only VCS responsibility is committing your changes using standard git:
-
-```
-git add <files>
-git commit -m "message"
-```
-
-Do not run `git clone`, `git merge`, `git push`, `git pull`, or any jj commands.
+**Never use any version control commands.** Do not run git, jj, or any other VCS commands — not for committing, not for any purpose. The infrastructure around you handles all version control automatically: cloning, committing, merging, and pushing. Your only job is to edit files.
 
 ## Bash Execution
 
