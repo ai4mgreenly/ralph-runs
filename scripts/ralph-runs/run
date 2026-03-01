@@ -86,6 +86,27 @@ def get_goal_comments(goal_id)
   (result && result['ok'] && result['items']) || []
 end
 
+def fetch_attachments(goal_id)
+  result = run_script('goal-attachments', goal_id.to_s)
+  return [] unless result && result['ok']
+
+  items = result['items'] || []
+  return [] if items.empty?
+
+  items.filter_map do |att|
+    att_id = att['id']
+    att_name = att['name'] || att_id.to_s
+    next unless att_id
+
+    att_data = run_script('goal-attachment-get', goal_id.to_s, att_id.to_s)
+    next unless att_data && att_data['ok'] && att_data['body']
+
+    { name: att_name, body: att_data['body'] }
+  end
+rescue StandardError
+  []
+end
+
 def build_retry_context(goal_body, comments, attempt, max)
   parts = [goal_body]
 
@@ -634,6 +655,19 @@ def main(options)
         if retries[goal_id] > 0
           comments = get_goal_comments(goal_id)
           goal_body = build_retry_context(goal_body, comments, retries[goal_id], MAX_RETRIES)
+        end
+
+        # Fetch and inline attachments (supplementary — failure does not block)
+        begin
+          attachments = fetch_attachments(goal_id)
+          if attachments.any?
+            log "#{gl} inlining #{attachments.size} attachment(s)"
+            attachments.each do |att|
+              goal_body += "\n\n## Attachment: #{att[:name]}\n\n#{att[:body]}"
+            end
+          end
+        rescue StandardError => e
+          log "#{gl} attachment fetch error (continuing): #{e.message}"
         end
 
         # Write goal body into GOAL_DIR
