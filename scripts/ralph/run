@@ -816,7 +816,14 @@ class Ralph
     end
 
     # Commit only code changes
-    system("git commit -m #{msg.shellescape} >/dev/null 2>&1")
+    committed = system("git commit -m #{msg.shellescape} >/dev/null 2>&1")
+
+    # Push to bare repo for durability (non-fatal)
+    if committed
+      unless system('git push origin HEAD >/dev/null 2>&1')
+        log('warn: git push origin HEAD failed, continuing')
+      end
+    end
   end
 
   # ─────────────────────────────────────────────────────────────
