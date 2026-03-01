@@ -46,6 +46,17 @@ If the goal body contains a **Retry Context** section, a previous attempt failed
 
 **You are running in an isolated clone.** Only read and modify files within your current working directory. Never use absolute paths that escape to parent directories. If you see paths like `/home/.../projects/...` that point outside your clone, you are escaping your sandbox - use relative paths instead.
 
+## Version Control
+
+**You are in a git clone, not a jj repo. Never use jj commands.** The orchestrator handles cloning, merging, and pushing. Your only VCS responsibility is committing your changes using standard git:
+
+```
+git add <files>
+git commit -m "message"
+```
+
+Do not run `git clone`, `git merge`, `git push`, `git pull`, or any jj commands.
+
 ## Bash Execution
 
 **All bash commands must run in the foreground.** Never use background execution — no `run_in_background`, no trailing `&`, no `nohup`. Background bash processes in Claude Code have a known bug where exit markers are never written, which hangs the entire process and causes the iteration to fail. Always wait for each command to complete before proceeding.
