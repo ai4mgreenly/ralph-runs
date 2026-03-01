@@ -119,6 +119,7 @@ def clone_repo(remote_url, org, repo, goal_id)
   system('git', 'clone', '--quiet', remote_url, dest, out: '/dev/null', err: '/dev/null')
   return nil unless $?.exitstatus == 0
 
+  setup_goal_branch(dest, goal_id)
   dest
 end
 
@@ -130,6 +131,38 @@ end
 def delete_goal_dir(goal_id)
   dest = File.join(GOAL_DIR, goal_id.to_s)
   FileUtils.rm_rf(dest) if Dir.exist?(dest)
+end
+
+def setup_goal_branch(clone_dir, goal_id)
+  branch = "goal-#{goal_id}"
+
+  # Check if branch exists in remote
+  ls_output = IO.popen(['git', 'ls-remote', '--heads', 'origin', branch],
+                        chdir: clone_dir, err: '/dev/null', &:read)
+  branch_exists = ls_output && !ls_output.strip.empty?
+
+  if branch_exists
+    # Fetch and checkout the existing branch, then rebase onto current main
+    system('git', 'fetch', 'origin', branch, chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+    system('git', 'checkout', branch, chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+
+    unless system('git', 'rebase', 'origin/main', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+      # Rebase conflict — discard branch and start fresh from main
+      system('git', 'rebase', '--abort', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+      system('git', 'checkout', 'main', chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+      system('git', 'branch', '-D', branch, chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+      system('git', 'checkout', '-b', branch, chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+    end
+  else
+    # First attempt — create branch from HEAD (currently on main after clone)
+    system('git', 'checkout', '-b', branch, chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+  end
+end
+
+def push_goal_branch(clone_dir, goal_id)
+  branch = "goal-#{goal_id}"
+  system('git', 'push', '-f', 'origin', branch,
+         chdir: clone_dir, out: '/dev/null', err: '/dev/null')
 end
 
 MERGE_MAX_ATTEMPTS = 10
@@ -217,6 +250,9 @@ def merge_to_main(goal_id, title, clone_dir, direnv_env = nil)
     # Push to bare repo — this is the atomic "claim" on main
     if system('git', 'push', 'origin', 'HEAD:main',
               chdir: clone_dir, out: '/dev/null', err: '/dev/null')
+      # Delete goal branch now that work is on main (best-effort; may not exist)
+      system('git', 'push', 'origin', '--delete', "goal-#{goal_id}",
+             chdir: clone_dir, out: '/dev/null', err: '/dev/null')
       return :ok
     end
 
@@ -289,8 +325,35 @@ def startup_cleanup
     end
   end
 
-  # Remove stale clone directories
+  # Push goal branches from stale clones, then remove them
   if Dir.exist?(CLONE_DIR)
+    Dir.glob(File.join(CLONE_DIR, '*', '*', '*')).each do |clone_path|
+      next unless Dir.exist?(clone_path)
+
+      parts = clone_path.delete_prefix(CLONE_DIR + '/').split('/')
+      next unless parts.size == 3
+
+      org, repo_name, goal_id_str = parts
+      branch = "goal-#{goal_id_str}"
+
+      # Only push if clone is on the goal branch
+      current_branch = begin
+        IO.popen(['git', 'rev-parse', '--abbrev-ref', 'HEAD'],
+                 chdir: clone_path, err: '/dev/null', &:read).strip
+      rescue StandardError
+        ''
+      end
+
+      next unless current_branch == branch
+
+      if system('git', 'push', '-f', 'origin', branch,
+                chdir: clone_path, out: '/dev/null', err: '/dev/null')
+        log "Startup: pushed #{branch} from stale clone #{org}/#{repo_name}/#{goal_id_str}"
+      else
+        log "Startup: WARNING failed to push #{branch} from stale clone #{org}/#{repo_name}/#{goal_id_str}"
+      end
+    end
+
     stale = Dir.children(CLONE_DIR)
     unless stale.empty?
       log "Startup: removing #{stale.size} stale entr#{stale.size == 1 ? 'y' : 'ies'} under clones/"
@@ -341,9 +404,13 @@ def main(options)
         run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
         log "#{goal_label(goal_id, ri)} → stuck (was running)"
 
-        delete_clone(ri[:org], ri[:repo], goal_id)
+        if push_goal_branch(info[:dir], goal_id)
+          delete_clone(ri[:org], ri[:repo], goal_id)
+          log "Cleaned up clones/#{ri[:org]}/#{ri[:repo]}/#{goal_id}/ and goals/#{goal_id}/"
+        else
+          log "#{goal_label(goal_id, ri)} WARNING: failed to push goal-#{goal_id} branch; clone preserved"
+        end
         delete_goal_dir(goal_id)
-        log "Cleaned up clones/#{ri[:org]}/#{ri[:repo]}/#{goal_id}/ and goals/#{goal_id}/"
       end
       log 'Done'
       break
@@ -362,9 +429,13 @@ def main(options)
       log "#{goal_label(goal_id, ri)} externally aborted (status: #{goal_data['status']}), killing process"
       kill_with_escalation(pid, info[:pgid])
       info[:stream_thread]&.join rescue nil
-      delete_clone(ri[:org], ri[:repo], goal_id)
+      if push_goal_branch(info[:dir], goal_id)
+        delete_clone(ri[:org], ri[:repo], goal_id)
+        log "#{goal_label(goal_id, ri)} cleaned up (aborted)"
+      else
+        log "#{goal_label(goal_id, ri)} WARNING: failed to push goal-#{goal_id} branch; clone preserved (aborted)"
+      end
       delete_goal_dir(goal_id)
-      log "#{goal_label(goal_id, ri)} cleaned up (aborted)"
       aborted_pids << pid
     end
     aborted_pids.each { |pid| running.delete(pid) }
@@ -407,6 +478,9 @@ def main(options)
         case result
         when :no_changes
           log "#{gl} no changes to merge"
+          # Delete goal branch from bare repo (best-effort; may not exist)
+          system('git', 'push', 'origin', '--delete', "goal-#{goal_id}",
+                 chdir: info[:dir], out: '/dev/null', err: '/dev/null')
           run_script(GOAL_DONE_SCRIPT, goal_id.to_s)
           completed_count += 1
           log "#{gl} → done"
@@ -429,7 +503,11 @@ def main(options)
             run_script(GOAL_RETRY_SCRIPT, goal_id.to_s)
             log "#{gl} → re-queued (retry #{retries[goal_id]}/#{MAX_RETRIES})"
           end
-          delete_clone(org, repo_name, goal_id)
+          if push_goal_branch(info[:dir], goal_id)
+            delete_clone(org, repo_name, goal_id)
+          else
+            log "#{gl} WARNING: failed to push goal-#{goal_id} branch; clone preserved"
+          end
           delete_goal_dir(goal_id)
         when :ok
           log "#{gl} merged to main"
@@ -453,7 +531,11 @@ def main(options)
           run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
           log "#{gl} → stuck (#{retries[goal_id]} retries exhausted)"
           notify("#{gl} stuck", "\"#{info[:title]}\" failed #{retries[goal_id]} times")
-          delete_clone(org, repo_name, goal_id)
+          if push_goal_branch(info[:dir], goal_id)
+            delete_clone(org, repo_name, goal_id)
+          else
+            log "#{gl} WARNING: failed to push goal-#{goal_id} branch; clone preserved"
+          end
           delete_goal_dir(goal_id)
         else
           # Post failure context, mark stuck, requeue
@@ -461,7 +543,11 @@ def main(options)
           run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
           run_script(GOAL_RETRY_SCRIPT, goal_id.to_s)
           log "#{gl} failed → re-queued (retry #{retries[goal_id]}/#{MAX_RETRIES})"
-          delete_clone(org, repo_name, goal_id)
+          if push_goal_branch(info[:dir], goal_id)
+            delete_clone(org, repo_name, goal_id)
+          else
+            log "#{gl} WARNING: failed to push goal-#{goal_id} branch; clone preserved"
+          end
           delete_goal_dir(goal_id)
         end
       end
