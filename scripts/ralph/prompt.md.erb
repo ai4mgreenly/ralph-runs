@@ -28,15 +28,16 @@ The following is the project's AGENTS.md. If it contains a "For Ralph" section, 
 
 # Guidance
 
+## Checks
+
+Before declaring DONE, run `.ralph/check` if it exists in the working directory. If it fails, fix whatever is failing and run it again to confirm it passes. Do not declare DONE until `.ralph/check` passes (or does not exist).
+
 ## Retries and Check Failures
 
 If the goal body contains a **Retry Context** section, a previous attempt failed post-merge checks. Do NOT redo the work from scratch. Instead:
 
 1. Read the Failure Log in the Retry Context to understand what failed.
-2. Run `.ralph/check` (or the specific failing checks) to see the actual error output.
-3. Fix whatever is failing — even if the failure is pre-existing or unrelated to the goal. All checks must pass. It is your job to make them pass.
-4. Do not modify or delete `.ralph/check`.
-5. Run `.ralph/check` again to confirm it passes before declaring DONE.
+2. Fix whatever is failing — even if the failure is pre-existing or unrelated to the goal. All checks must pass. It is your job to make them pass.
 
 ## Protected Files
 
