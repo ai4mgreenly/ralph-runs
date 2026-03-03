@@ -264,6 +264,7 @@ class Ralph
 
   def run_iteration
     display_iteration_header
+    display_progress_context
 
     prompt = build_worker_prompt
     iteration_start = Time.now
@@ -855,6 +856,23 @@ class Ralph
   def display_iteration_header
     emit_line "\e[1mIteration #{@iteration}\e[0m"
     emit_line
+  end
+
+  def display_progress_context
+    recent_content = build_recent_iterations
+    summary_content = File.exist?(@summary_file) ? File.read(@summary_file).strip : ''
+    return if recent_content.empty? && summary_content.empty?
+
+    emit_line "\e[90m--- Progress ---\e[0m"
+    emit_line
+    unless summary_content.empty?
+      summary_content.each_line { |l| emit_line "\e[90m#{l.chomp}\e[0m" }
+      emit_line
+    end
+    unless recent_content.empty?
+      recent_content.each_line { |l| emit_line "\e[90m#{l.chomp}\e[0m" }
+      emit_line
+    end
   end
 
   def maybe_ralph_says
