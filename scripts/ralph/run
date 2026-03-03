@@ -853,23 +853,14 @@ class Ralph
   def display_goal
     goal_content = File.read(@goal_file)
 
-    # Extract just the objective section
-    objective = extract_objective(goal_content)
-
-    emit_line "\e[1mGoal\e[0m"
+    emit_line '─' * 70
+    emit_line "\e[1mGoal: #{File.basename(@goal_file)}\e[0m"
+    emit_line '─' * 70
     emit_line
-    emit_line objective
+    emit_line goal_content.chomp
     emit_line
-  end
-
-  def extract_objective(content)
-    # Try to extract ## Objective section
-    if content =~ /^## Objective\s*\n(.*?)(?=\n##|\z)/m
-      return $1.strip
-    end
-
-    # Fallback: first 500 chars
-    content[0, 500]
+    emit_line '─' * 70
+    emit_line
   end
 
   def display_iteration_header
