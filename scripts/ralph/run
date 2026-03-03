@@ -851,13 +851,13 @@ class Ralph
   end
 
   def display_goal
-    goal_content = File.read(@goal_file)
+    prompt_content = build_worker_prompt
 
     emit_line '─' * 70
     emit_line "\e[1mGoal: #{File.basename(@goal_file)}\e[0m"
     emit_line '─' * 70
     emit_line
-    emit_line goal_content.chomp
+    emit_line prompt_content.chomp
     emit_line
     emit_line '─' * 70
     emit_line
