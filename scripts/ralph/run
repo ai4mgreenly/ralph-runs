@@ -405,7 +405,7 @@ class Ralph
 
     recent_entries.each_with_index.map do |entry, idx|
       iteration_num = summary_end + idx + 1
-      "### Iteration #{iteration_num}\n\n#{entry['progress']}"
+      "### Iteration #{iteration_num} (completed)\n\n#{entry['progress']}"
     end.join("\n\n")
   end
 
@@ -421,7 +421,7 @@ class Ralph
 
     entries_to_summarize.each_with_index.map do |entry, idx|
       iteration_num = summary_end + idx + 1
-      "### Iteration #{iteration_num}\n\n#{entry['progress']}"
+      "### Iteration #{iteration_num} (completed)\n\n#{entry['progress']}"
     end.join("\n\n")
   end
 
