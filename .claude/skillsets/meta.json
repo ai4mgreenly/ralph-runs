@@ -5,5 +5,7 @@
     "goal-authoring",
     "align"
   ],
-  "advertise": []
+  "advertise": [
+    {"skill": "scratch", "description": "Temporary storage for carrying information between sessions via .claude/data/scratch.md"}
+  ]
 }
