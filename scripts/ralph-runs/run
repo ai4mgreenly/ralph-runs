@@ -41,6 +41,7 @@ GOAL_GET_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-get', 'run')
 GOAL_START_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-start', 'run')
 GOAL_DONE_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-done', 'run')
 GOAL_STUCK_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-stuck', 'run')
+GOAL_QUEUE_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-queue', 'run')
 GOAL_COMMENT_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-comment', 'run')
 GOAL_COMMENTS_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-comments', 'run')
 GOAL_RETRY_SCRIPT = File.join(SCRIPT_DIR, '..', 'goal-retry', 'run')
@@ -421,9 +422,9 @@ def main(options)
         ri = info[:repo]
         goal_id = info[:goal_id]
 
-        # Mark stuck — leave for human intervention
-        run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
-        log "#{goal_label(goal_id, ri)} → stuck (was running)"
+        # Requeue — operator interrupt is not a failure
+        run_script(GOAL_QUEUE_SCRIPT, goal_id.to_s)
+        log "#{goal_label(goal_id, ri)} → queued (interrupted)"
 
         if push_goal_branch(info[:dir], goal_id)
           delete_clone(ri[:org], ri[:repo], goal_id)
