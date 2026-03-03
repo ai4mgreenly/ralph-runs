@@ -32,6 +32,12 @@ The following is the project's AGENTS.md. If it contains a "For Ralph" section, 
 
 Before declaring DONE, run `.ralph/check` if it exists in the working directory. If it fails, fix whatever is failing and run it again to confirm it passes. Do not declare DONE until `.ralph/check` passes (or does not exist).
 
+## One Check Per Iteration
+
+**Run checks at most once per iteration. This is a hard rule, not a suggestion.**
+
+If a check fails, return immediately with the failure details. Do not fix and rerun in the same iteration. The next iteration will fix it with fresh context and full intelligence. Verify-fix-verify-fix loops fill context and degrade your ability to reason. Make your change, run the check once, report the result, return.
+
 ## Retries and Check Failures
 
 If the goal body contains a **Retry Context** section, a previous attempt failed post-merge checks. Do NOT redo the work from scratch. Instead:
@@ -56,7 +62,7 @@ If the goal body contains a **Retry Context** section, a previous attempt failed
 **All bash commands must run in the foreground.** Never use background execution — no `run_in_background`, no trailing `&`, no `nohup`. Background bash processes in Claude Code have a known bug where exit markers are never written, which hangs the entire process and causes the iteration to fail. Always wait for each command to complete before proceeding.
 
 ## Steps
-A step involves: read only what you need → make one change → confirm it worked. Return after one change, even if more changes remain.
+A step involves: read only what you need → make one change → run checks once and report the result. Return after one change, even if more changes remain. "Confirm it worked" means run the check once — if it fails, return with the failure; do not fix and rerun.
 
 ## Progress Messages
 Write 3-7 sentences. Future iterations depend on this context to avoid repeating work.
