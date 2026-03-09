@@ -127,14 +127,35 @@ def build_retry_context(goal_body, comments, attempt, max)
 
   parts << "\n### Required Action"
   parts << "1. Read the Failure Log above to understand what failed."
-  parts << "2. Run `.ralph/check` (or the specific failing checks) to see the actual error output."
-  parts << "3. Fix whatever is failing — even if the failure is pre-existing or unrelated to the goal. All checks must pass. It is your job to make them pass."
-  parts << "4. Do not delete or modify `.ralph/check`."
-  parts << "5. Run `.ralph/check` again to confirm it passes before declaring DONE."
+  parts << "2. Your branch has been rebased onto the latest main. If the previous attempt failed due to a merge conflict, some of your prior work may be lost or incomplete — re-verify all outcomes from scratch."
+  parts << "3. Run `.ralph/check` (or the specific failing checks) to see the actual error output."
+  parts << "4. Fix whatever is failing — even if the failure is pre-existing or unrelated to the goal. All checks must pass. It is your job to make them pass."
+  parts << "5. Do not delete or modify `.ralph/check`."
+  parts << "6. Run `.ralph/check` again to confirm it passes before declaring DONE."
 
   parts.join("\n")
 end
 
+
+def read_last_progress(goal_id)
+  progress_file = File.join(GOAL_DIR, goal_id.to_s, 'goal-progress.jsonl')
+  return nil unless File.exist?(progress_file)
+
+  last_line = File.readlines(progress_file).reject { |l| l.strip.empty? }.last
+  return nil unless last_line
+
+  entry = JSON.parse(last_line.strip)
+  entry['progress']
+rescue StandardError
+  nil
+end
+
+def append_to_ralph_log(goal_id, text)
+  ralph_log = File.join(GOAL_DIR, goal_id.to_s, 'ralph.log')
+  File.open(ralph_log, 'a') { |f| f.puts(text) }
+rescue StandardError
+  nil
+end
 
 def clone_repo(remote_url, org, repo, goal_id)
   dest = File.join(CLONE_DIR, org, repo, goal_id.to_s)
@@ -249,13 +270,14 @@ def merge_to_main(goal_id, title, clone_dir, direnv_env = nil)
 
       check_cmd = direnv_env ? [direnv_env, check_script] : [check_script]
       check_stdout, check_stderr, check_status = Open3.capture3(*check_cmd, chdir: clone_dir)
+      combined_output = [check_stdout.strip, check_stderr.strip].reject(&:empty?).join("\n\n--- stderr ---\n")
       unless check_status.success?
         log "Goal ##{goal_id} .ralph/check failed (exit #{check_status.exitstatus})"
         log "Goal ##{goal_id} check stdout: #{check_stdout.strip.empty? ? '(empty)' : check_stdout.strip}"
         log "Goal ##{goal_id} check stderr: #{check_stderr.strip.empty? ? '(empty)' : check_stderr.strip}"
-        combined_output = [check_stdout.strip, check_stderr.strip].reject(&:empty?).join("\n\n--- stderr ---\n")
         return [:check_failed, combined_output]
       end
+      check_output_for_log = combined_output
     end
 
     # Squash all commits since origin/main into a single commit
@@ -276,7 +298,7 @@ def merge_to_main(goal_id, title, clone_dir, direnv_env = nil)
       # Delete goal branch now that work is on main (best-effort; may not exist)
       system('git', 'push', 'origin', '--delete', "goal-#{goal_id}",
              chdir: clone_dir, out: '/dev/null', err: '/dev/null')
-      return :ok
+      return [:ok, check_output_for_log]
     end
 
     # Push failed — main diverged, loop back to fetch and rebase
@@ -487,15 +509,23 @@ def main(options)
       # Wait for stream thread to finish writing all output
       info[:stream_thread]&.join
 
+      # Read last progress for failure comments
+      last_progress = read_last_progress(goal_id)
+
       if status.exitstatus == 0
         log "#{gl} ralph finished (exit 0, #{elapsed})"
 
         result = merge_to_main(goal_id, info[:title], info[:dir], info[:direnv_env])
 
-        # Normalize result: extract check output if check failed
+        # Normalize result: extract check output
         check_output = nil
         if result.is_a?(Array)
           result, check_output = result
+        end
+
+        # Append check output to ralph.log
+        if check_output && !check_output.empty?
+          append_to_ralph_log(goal_id, "\n#{'─' * 70}\n.ralph/check output (#{result})\n#{'─' * 70}\n\n#{check_output}")
         end
 
         case result
@@ -512,9 +542,13 @@ def main(options)
           delete_goal_dir(goal_id)
         when :conflict, :check_failed, :merge_failed
           log "#{gl} #{result}, treating as failure"
-          comment = "Merge failed (#{result})"
-          comment += "\n\n#{check_output}" if check_output && !check_output.empty?
-          post_comment(goal_id, comment)
+          comment_parts = ["## #{info[:title]}", "**Result:** #{result} (attempt #{retries[goal_id] + 1}/#{MAX_RETRIES + 1})"]
+          comment_parts << "\n**Last progress:** #{last_progress}" if last_progress
+          comment_parts << "\n**Check output:**\n```\n#{check_output}\n```" if check_output && !check_output.empty?
+          if result == :conflict
+            comment_parts << "\n**Note:** Work conflicted with changes on main. The retry will start from a fresh rebase. Re-verify all outcomes from scratch."
+          end
+          post_comment(goal_id, comment_parts.join("\n"))
           retries[goal_id] += 1
 
           if retries[goal_id] > MAX_RETRIES
@@ -561,8 +595,10 @@ def main(options)
           end
           delete_goal_dir(goal_id)
         else
-          # Post failure context, mark stuck, requeue
-          post_comment(goal_id, "Ralph failed (exit #{status.exitstatus}, attempt #{retries[goal_id]}/#{MAX_RETRIES})")
+          # Post failure context with last progress, mark stuck, requeue
+          comment_parts = ["## #{info[:title]}", "**Result:** Ralph failed (exit #{status.exitstatus}, attempt #{retries[goal_id]}/#{MAX_RETRIES + 1})"]
+          comment_parts << "\n**Last progress:** #{last_progress}" if last_progress
+          post_comment(goal_id, comment_parts.join("\n"))
           run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
           run_script(GOAL_RETRY_SCRIPT, goal_id.to_s)
           log "#{gl} failed → re-queued (retry #{retries[goal_id]}/#{MAX_RETRIES})"

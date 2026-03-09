@@ -122,8 +122,6 @@ class Ralph
     load_state if @continue_run
 
     display_header
-    display_goal
-    sleep 2
     display_continue_status
     handle_dirty_state
     summarize_if_needed if @continue_run
@@ -263,10 +261,17 @@ class Ralph
   # ─────────────────────────────────────────────────────────────
 
   def run_iteration
-    display_iteration_header
-    display_progress_context
-
     prompt = build_worker_prompt
+
+    emit_line '─' * 70
+    emit_line "Iteration #{@iteration}"
+    emit_line '─' * 70
+    emit_line
+    emit_line prompt.chomp
+    emit_line
+    emit_line '─' * 70
+    emit_line
+
     iteration_start = Time.now
     start_spinner("Iteration #{@iteration}")
 
