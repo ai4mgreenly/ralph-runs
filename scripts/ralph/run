@@ -12,7 +12,6 @@ require 'fileutils'
 # Resolve script directory at load time (before any chdir)
 SCRIPT_DIR = File.dirname(File.realpath(__FILE__))
 RALPH_DIR = ENV['RALPH_DIR'] || File.join(ENV['HOME'], '.local', 'state', 'ralph')
-GOALS_DIR = File.join(RALPH_DIR, 'goals')
 STATS_FILE = File.join(RALPH_DIR, 'stats.jsonl')
 
 # Ralph: Iterative goal completion loop
@@ -117,7 +116,6 @@ class Ralph
     set_goal_paths(@goal_file)
     source_envrc
     validate_files
-    copy_goal_file
     initialize_state unless @continue_run
     load_state if @continue_run
 
@@ -991,18 +989,6 @@ class Ralph
 
   def ensure_state_dirs
     FileUtils.mkdir_p(RALPH_DIR)
-    FileUtils.mkdir_p(GOALS_DIR)
-  end
-
-  def copy_goal_file
-    ensure_state_dirs
-    # Append datetime to filename: feature-goal.md -> feature-goal-2026-01-30T14-30-00.md
-    base = File.basename(@goal_file, '.*')
-    ext = File.extname(@goal_file)
-    timestamp = @start_time.strftime('%Y-%m-%dT%H-%M-%S')
-    @goal_copy_name = "#{base}-#{timestamp}#{ext}"
-    dest = File.join(GOALS_DIR, @goal_copy_name)
-    FileUtils.cp(@goal_file, dest)
   end
 
   def write_stats_record(actual_elapsed)
@@ -1014,7 +1000,7 @@ class Ralph
     lines_added, lines_deleted = compute_diff_stats(@start_commit, @end_commit)
 
     record = {
-      goal_file: "goals/#{@goal_copy_name}",
+      goal_file: @goal_file,
       started_at: @start_time.iso8601,
       exit_reason: @exit_reason.to_s,
       model: @model,

@@ -33,6 +33,7 @@ RALPH_DIR = ENV['RALPH_DIR'] || File.join(ENV['HOME'], '.local', 'state', 'ralph
 CLONE_DIR = File.join(RALPH_DIR, 'clones')
 LOG_DIR = File.join(RALPH_DIR, 'logs')
 GOAL_DIR = File.join(RALPH_DIR, 'goals')
+ARCHIVE_DIR = File.join(RALPH_DIR, 'archive')
 LOG_FILE = File.join(LOG_DIR, 'ralph-runs.log')
 RALPH_SCRIPT = File.join(SCRIPT_DIR, '..', 'ralph', 'run')
 NOTIFY_SCRIPT = File.join(SCRIPT_DIR, '..', 'notify', 'run')
@@ -175,6 +176,20 @@ end
 def delete_goal_dir(goal_id)
   dest = File.join(GOAL_DIR, goal_id.to_s)
   FileUtils.rm_rf(dest) if Dir.exist?(dest)
+end
+
+def archive_goal_dir(goal_id, attempt)
+  src = File.join(GOAL_DIR, goal_id.to_s)
+  return unless Dir.exist?(src)
+
+  dest = File.join(ARCHIVE_DIR, goal_id.to_s, "attempt-#{attempt}")
+  FileUtils.mkdir_p(dest)
+  %w[goal.md ralph.log goal-progress.jsonl goal-summary.md goal-summary-meta.json].each do |f|
+    src_file = File.join(src, f)
+    FileUtils.cp(src_file, dest) if File.exist?(src_file)
+  end
+rescue StandardError => e
+  log "WARNING: archive_goal_dir failed for goal #{goal_id}: #{e.message}"
 end
 
 def setup_goal_branch(clone_dir, goal_id)
@@ -420,8 +435,7 @@ def main(options)
   startup_cleanup
 
   # State tracking
-  running = {}                # pid => {goal_id:, title:, dir:, started_at:, stream_thread:, wait_thread:, repo:}
-  retries = Hash.new(0)       # goal_id => retry count
+  running = {}                # pid => {goal_id:, title:, dir:, started_at:, stream_thread:, wait_thread:, repo:, retries:}
   attempted = Set.new         # goal_id
   completed_count = 0
   last_queued_count = nil
@@ -455,6 +469,7 @@ def main(options)
         else
           log "#{goal_label(goal_id, ri)} WARNING: failed to push goal-#{goal_id} branch; clone preserved"
         end
+        archive_goal_dir(goal_id, info[:retries])
         delete_goal_dir(goal_id)
       end
       log 'Done'
@@ -480,6 +495,7 @@ def main(options)
       else
         log "#{goal_label(goal_id, ri)} WARNING: failed to push goal-#{goal_id} branch; clone preserved (aborted)"
       end
+      archive_goal_dir(goal_id, info[:retries])
       delete_goal_dir(goal_id)
       aborted_pids << pid
     end
@@ -539,32 +555,33 @@ def main(options)
           log "#{gl} → done"
           notify("#{gl} done", "\"#{info[:title]}\" completed in #{elapsed}")
           delete_clone(org, repo_name, goal_id)
+          archive_goal_dir(goal_id, info[:retries])
           delete_goal_dir(goal_id)
         when :conflict, :check_failed, :merge_failed
           log "#{gl} #{result}, treating as failure"
-          comment_parts = ["## #{info[:title]}", "**Result:** #{result} (attempt #{retries[goal_id] + 1}/#{MAX_RETRIES + 1})"]
+          comment_parts = ["## #{info[:title]}", "**Result:** #{result} (attempt #{info[:retries] + 1}/#{MAX_RETRIES + 1})"]
           comment_parts << "\n**Last progress:** #{last_progress}" if last_progress
           comment_parts << "\n**Check output:**\n```\n#{check_output}\n```" if check_output && !check_output.empty?
           if result == :conflict
             comment_parts << "\n**Note:** Work conflicted with changes on main. The retry will start from a fresh rebase. Re-verify all outcomes from scratch."
           end
           post_comment(goal_id, comment_parts.join("\n"))
-          retries[goal_id] += 1
 
-          if retries[goal_id] > MAX_RETRIES
+          if info[:retries] + 1 > MAX_RETRIES
             run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
-            log "#{gl} → stuck (#{retries[goal_id]} retries exhausted)"
-            notify("#{gl} stuck", "\"#{info[:title]}\" failed #{retries[goal_id]} times")
+            log "#{gl} → stuck (#{info[:retries] + 1} retries exhausted)"
+            notify("#{gl} stuck", "\"#{info[:title]}\" failed #{info[:retries] + 1} times")
           else
             run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
             run_script(GOAL_RETRY_SCRIPT, goal_id.to_s)
-            log "#{gl} → re-queued (retry #{retries[goal_id]}/#{MAX_RETRIES})"
+            log "#{gl} → re-queued (retry #{info[:retries] + 1}/#{MAX_RETRIES})"
           end
           if push_goal_branch(info[:dir], goal_id)
             delete_clone(org, repo_name, goal_id)
           else
             log "#{gl} WARNING: failed to push goal-#{goal_id} branch; clone preserved"
           end
+          archive_goal_dir(goal_id, info[:retries])
           delete_goal_dir(goal_id)
         when :ok
           log "#{gl} merged to main"
@@ -578,35 +595,37 @@ def main(options)
           log "#{gl} → done"
           notify("#{gl} done", "\"#{info[:title]}\" completed in #{elapsed}")
           delete_clone(org, repo_name, goal_id)
+          archive_goal_dir(goal_id, info[:retries])
           delete_goal_dir(goal_id)
         end
       else
         log "#{gl} ralph finished (exit #{status.exitstatus}, #{elapsed})"
-        retries[goal_id] += 1
 
-        if retries[goal_id] > MAX_RETRIES
+        if info[:retries] + 1 > MAX_RETRIES
           run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
-          log "#{gl} → stuck (#{retries[goal_id]} retries exhausted)"
-          notify("#{gl} stuck", "\"#{info[:title]}\" failed #{retries[goal_id]} times")
+          log "#{gl} → stuck (#{info[:retries] + 1} retries exhausted)"
+          notify("#{gl} stuck", "\"#{info[:title]}\" failed #{info[:retries] + 1} times")
           if push_goal_branch(info[:dir], goal_id)
             delete_clone(org, repo_name, goal_id)
           else
             log "#{gl} WARNING: failed to push goal-#{goal_id} branch; clone preserved"
           end
+          archive_goal_dir(goal_id, info[:retries])
           delete_goal_dir(goal_id)
         else
           # Post failure context with last progress, mark stuck, requeue
-          comment_parts = ["## #{info[:title]}", "**Result:** Ralph failed (exit #{status.exitstatus}, attempt #{retries[goal_id]}/#{MAX_RETRIES + 1})"]
+          comment_parts = ["## #{info[:title]}", "**Result:** Ralph failed (exit #{status.exitstatus}, attempt #{info[:retries] + 1}/#{MAX_RETRIES + 1})"]
           comment_parts << "\n**Last progress:** #{last_progress}" if last_progress
           post_comment(goal_id, comment_parts.join("\n"))
           run_script(GOAL_STUCK_SCRIPT, goal_id.to_s)
           run_script(GOAL_RETRY_SCRIPT, goal_id.to_s)
-          log "#{gl} failed → re-queued (retry #{retries[goal_id]}/#{MAX_RETRIES})"
+          log "#{gl} failed → re-queued (retry #{info[:retries] + 1}/#{MAX_RETRIES})"
           if push_goal_branch(info[:dir], goal_id)
             delete_clone(org, repo_name, goal_id)
           else
             log "#{gl} WARNING: failed to push goal-#{goal_id} branch; clone preserved"
           end
+          archive_goal_dir(goal_id, info[:retries])
           delete_goal_dir(goal_id)
         end
       end
@@ -689,10 +708,11 @@ def main(options)
         end
 
         # Build goal file — augment with retry context if comments exist
+        goal_retries = goal_data['retries'].to_i
         goal_body = goal_data['body']
-        if retries[goal_id] > 0
+        if goal_retries > 0
           comments = get_goal_comments(goal_id)
-          goal_body = build_retry_context(goal_body, comments, retries[goal_id], MAX_RETRIES)
+          goal_body = build_retry_context(goal_body, comments, goal_retries, MAX_RETRIES)
         end
 
         # Fetch and inline attachments (supplementary — failure does not block)
@@ -766,7 +786,8 @@ def main(options)
           wait_thread: wait_thread,
           repo: ri,
           direnv_env: direnv_env,
-          pgid: pgid
+          pgid: pgid,
+          retries: goal_retries
         }
       end
     end
