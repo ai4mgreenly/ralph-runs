@@ -37,16 +37,15 @@ ARCHIVE_DIR = File.join(RALPH_DIR, 'archive')
 LOG_FILE = File.join(LOG_DIR, 'ralph-runs.log')
 RALPH_SCRIPT = File.join(SCRIPT_DIR, '..', 'ralph', 'run')
 NOTIFY_SCRIPT = File.join(SCRIPT_DIR, '..', 'notify', 'run')
-PIPELINE_SCRIPTS = ENV.fetch('RALPH_PIPELINE_DIR', '/home/ai4mgreenly/projects/ralph-pipeline/scripts')
-GOAL_LIST_SCRIPT = File.join(PIPELINE_SCRIPTS, 'goal-list')
-GOAL_GET_SCRIPT = File.join(PIPELINE_SCRIPTS, 'goal-get')
-GOAL_START_SCRIPT = File.join(PIPELINE_SCRIPTS, 'goal-start')
-GOAL_DONE_SCRIPT = File.join(PIPELINE_SCRIPTS, 'goal-done')
-GOAL_STUCK_SCRIPT = File.join(PIPELINE_SCRIPTS, 'goal-stuck')
-GOAL_QUEUE_SCRIPT = File.join(PIPELINE_SCRIPTS, 'goal-queue')
-GOAL_COMMENT_SCRIPT = File.join(PIPELINE_SCRIPTS, 'goal-comment')
-GOAL_COMMENTS_SCRIPT = File.join(PIPELINE_SCRIPTS, 'goal-comments')
-GOAL_RETRY_SCRIPT = File.join(PIPELINE_SCRIPTS, 'goal-retry')
+GOAL_LIST_SCRIPT = 'goal-list'
+GOAL_GET_SCRIPT = 'goal-get'
+GOAL_START_SCRIPT = 'goal-start'
+GOAL_DONE_SCRIPT = 'goal-done'
+GOAL_STUCK_SCRIPT = 'goal-stuck'
+GOAL_QUEUE_SCRIPT = 'goal-queue'
+GOAL_COMMENT_SCRIPT = 'goal-comment'
+GOAL_COMMENTS_SCRIPT = 'goal-comments'
+GOAL_RETRY_SCRIPT = 'goal-retry'
 MAX_RETRIES = 3
 
 def init_log
@@ -90,7 +89,7 @@ def get_goal_comments(goal_id)
 end
 
 def fetch_attachments(goal_id)
-  result = run_script(File.join(PIPELINE_SCRIPTS, 'goal-attachments'), goal_id.to_s)
+  result = run_script('goal-attachments', goal_id.to_s)
   return [] unless result && result['ok']
 
   items = result['items'] || []
@@ -101,7 +100,7 @@ def fetch_attachments(goal_id)
     att_name = att['name'] || att_id.to_s
     next unless att_id
 
-    att_data = run_script(File.join(PIPELINE_SCRIPTS, 'goal-attachment-get'), goal_id.to_s, att_id.to_s)
+    att_data = run_script('goal-attachment-get', goal_id.to_s, att_id.to_s)
     next unless att_data && att_data['ok'] && att_data['body']
 
     { name: att_name, body: att_data['body'] }

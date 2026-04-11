@@ -446,7 +446,7 @@ class Ralph
   def invoke_claude(prompt:, model:, thinking_budget:, tools:, schema:, iteration_start: nil)
     env = "CLAUDE_CODE_DISABLE_1M_CONTEXT=1 "
     env += "MAX_THINKING_TOKENS=#{thinking_budget} " if thinking_budget.positive?
-    cmd = "#{env}ANTHROPIC_API_KEY= claude -p --model #{model} --tools \"#{tools}\" --verbose --input-format stream-json --output-format stream-json --json-schema '#{schema}' --settings '{\"enabledPlugins\": {\"ralph-pipeline\": false}}'"
+    cmd = "#{env}ANTHROPIC_API_KEY= claude -p --model #{model} --tools \"#{tools}\" --verbose --input-format stream-json --output-format stream-json --json-schema '#{schema}'"
 
     result = nil
     tool_names = {}  # track tool_use_id -> tool_name for result lookup
